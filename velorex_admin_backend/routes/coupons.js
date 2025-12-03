@@ -13,6 +13,46 @@ router.get('/', async (_, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+router.put("/coupons/:id", async (req, res) => {
+  const id = req.params.id;
+  const data = req.body;
+
+  try {
+    const pool = await poolPromise;
+
+    await pool.request()
+      .input('Code', sql.NVarChar, data.Code)
+      .input('DiscountType', sql.NVarChar, data.DiscountType)
+      .input('DiscountAmount', sql.Decimal(18,2), data.DiscountAmount)
+      .input('MinimumPurchase', sql.Decimal(18,2), data.MinimumPurchase)
+      .input('StartDate', sql.DateTime, data.StartDate)
+      .input('EndDate', sql.DateTime, data.EndDate)
+      .input('Status', sql.NVarChar, data.Status)
+      .input('CategoryID', sql.Int, data.CategoryID ?? null)
+      .input('SubcategoryID', sql.Int, data.SubcategoryID ?? null)
+      .input('ProductID', sql.Int, data.ProductID ?? null)
+      .input('CouponID', sql.Int, id)
+      .query(`
+        UPDATE Coupons SET
+          Code = @Code,
+          DiscountType = @DiscountType,
+          DiscountAmount = @DiscountAmount,
+          MinimumPurchase = @MinimumPurchase,
+          StartDate = @StartDate,
+          EndDate = @EndDate,
+          Status = @Status,
+          CategoryID = @CategoryID,
+          SubcategoryID = @SubcategoryID,
+          ProductID = @ProductID
+        WHERE CouponID = @CouponID
+      `);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.log("❌ UPDATE ERROR:", err);
+    res.status(500).json({ error: 'Update failed' });
+  }
+});
 
 // ✅ Add a coupon
 router.post('/', async (req, res) => {
@@ -41,13 +81,14 @@ router.post('/', async (req, res) => {
   .input('Status', sql.NVarChar, status)
   .input('CategoryID', sql.Int, categoryId != null ? categoryId : null)
   .input('SubcategoryID', sql.Int, subcategoryId != null ? subcategoryId : null)
-  .input('productId', sql.Int, productId != null ? productId : null)  // ✅ FIXED HERE
-  .query(`
-    INSERT INTO Coupons
-      (Code, DiscountType, DiscountAmount, MinimumPurchase, StartDate, EndDate, Status, CategoryID, SubcategoryID, productId)
-    VALUES
-      (@Code, @DiscountType, @DiscountAmount, @MinimumPurchase, @StartDate, @EndDate, @Status, @CategoryID, @SubcategoryID, @productId)
-  `);
+  .input('ProductID', sql.Int, productId != null ? productId : null)
+.query(`
+  INSERT INTO Coupons
+    (Code, DiscountType, DiscountAmount, MinimumPurchase, StartDate, EndDate, Status, CategoryID, SubcategoryID, ProductID)
+  VALUES
+    (@Code, @DiscountType, @DiscountAmount, @MinimumPurchase, @StartDate, @EndDate, @Status, @CategoryID, @SubcategoryID, @ProductID)
+`);
+
 
 
     res.status(201).json({ message: '✅ Coupon added successfully' });

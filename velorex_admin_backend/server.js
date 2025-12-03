@@ -45,6 +45,8 @@ app.use('/api', uploadRouter);
 app.use('/api/posters', postersRoute);
 app.use('/api/admin', adminAuthRoutes);
 app.use("/api/admin/orders", adminOrders);
+app.use('/api/coupons', require('./routes/coupons'));
+
 
 
 // DEFAULT

@@ -1,413 +1,350 @@
-// // ignore_for_file: use_build_context_synchronously
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../services/api_service.dart';
 
-// import 'package:flutter/material.dart';
-// import 'package:intl/intl.dart';
+class CouponPage extends StatefulWidget {
+  const CouponPage({super.key});
 
-// import '../services/api_service.dart';
+  @override
+  State<CouponPage> createState() => _CouponPageState();
+}
 
-// class CouponPage extends StatefulWidget {
-//   const CouponPage({super.key});
+class _CouponPageState extends State<CouponPage> {
+  List<Map<String, dynamic>> coupons = [];
+  bool isLoading = true;
 
-//   @override
-//   State<CouponPage> createState() => _CouponPageState();
-// }
+  @override
+  void initState() {
+    super.initState();
+    loadCoupons();
+  }
 
-// class _CouponPageState extends State<CouponPage> {
-//   List<Map<String, dynamic>> coupons = [];
-//   bool isLoading = true;
+  Future<void> loadCoupons() async {
+    setState(() => isLoading = true);
 
-//   @override
-//   void initState() {
-//     super.initState();
-//     loadCoupons();
-//   }
+    try {
+      final data = await ApiService.getCoupons();
+      setState(() {
+        coupons = List<Map<String, dynamic>>.from(data);
+        isLoading = false;
+      });
+    } catch (e) {
+      debugPrint("❌ Failed to load coupons: $e");
+      if (!mounted) return;
+      setState(() => isLoading = false);
+    }
+  }
 
-//   Future<void> loadCoupons() async {
-//     setState(() => isLoading = true);
-//     try {
-//       final data = await ApiService.getCoupons();
-//       setState(() {
-//         coupons = data;
-//         isLoading = false;
-//       });
-//     } catch (e) {
-//       debugPrint('❌ Failed to load coupons: $e');
-//       setState(() => isLoading = false);
-//     }
-//   }
+  void openAddCouponForm() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AddCouponForm()),
+    );
 
-//   Future<void> deleteCoupon(int id) async {
-//     final success = await ApiService.deleteCoupon(id);
-//     if (success) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         const SnackBar(content: Text('Coupon deleted')),
-//       );
-//       loadCoupons();
-//     } else {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         const SnackBar(content: Text('Failed to delete')),
-//       );
-//     }
-//   }
+    if (result == true) loadCoupons();
+  }
 
-//   void openAddCouponForm() async {
-//     final result = await Navigator.push(
-//       context,
-//       MaterialPageRoute(builder: (_) => const AddCouponForm()),
-//     );
-//     if (result == true) {
-//       loadCoupons(); // refresh if added
-//     }
-//   }
+  Future<void> deleteCoupon(int id) async {
+    final success = await ApiService.deleteCoupon(id);
 
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: const Text('Coupons'),
-//         actions: [
-//           IconButton(
-//             icon: const Icon(Icons.add),
-//             onPressed: openAddCouponForm,
-//           ),
-//         ],
-//       ),
-//       body: isLoading
-//           ? const Center(child: CircularProgressIndicator())
-//           : coupons.isEmpty
-//               ? const Center(child: Text('No coupons found'))
-//               : ListView.builder(
-//                   itemCount: coupons.length,
-//                   itemBuilder: (context, index) {
-//                     final coupon = coupons[index];
-//                     return Card(
-//                       child: ListTile(
-//                         title: Text(coupon['Code'] ?? 'No Code'),
-//                         subtitle: Text(
-//                           '${coupon['DiscountType']} - ${coupon['DiscountAmount']}',
-//                         ),
-//                         trailing: IconButton(
-//                           icon: const Icon(Icons.delete, color: Colors.red),
-//                           onPressed: () {
-//                             deleteCoupon(coupon['CouponID'] as int);
-//                           },
-//                         ),
-//                       ),
-//                     );
-//                   },
-//                 ),
-//     );
-//   }
-// }
+    if (!mounted) return;
 
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Coupon deleted')),
+      );
+      loadCoupons();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to delete coupon')),
+      );
+    }
+  }
 
-// class AddCouponForm extends StatefulWidget {
-//   const AddCouponForm({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Coupons"),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: openAddCouponForm,
+        icon: const Icon(Icons.add),
+        label: const Text("Add New Coupon"),
+      ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : coupons.isEmpty
+              ? const Center(child: Text("No coupons found"))
+              : SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columns: const [
+                      DataColumn(label: Text("Coupon Code")),
+                      DataColumn(label: Text("Status")),
+                      DataColumn(label: Text("Amount")),
+                      DataColumn(label: Text("Valid Date")),
+                      DataColumn(label: Text("Edit")),
+                      DataColumn(label: Text("Delete")),
+                    ],
+                    rows: coupons.map((coupon) {
+                      final id = coupon['CouponID'];
+                      final code = coupon['Code'];
+                      final status = coupon['Status'];
+                      final amount = coupon['DiscountAmount'];
+                      final start = coupon['StartDate'];
+                      final end = coupon['EndDate'];
 
-//   @override
-//   State<AddCouponForm> createState() => _AddCouponFormState();
-// }
+                      return DataRow(
+                        cells: [
+                          DataCell(Text(code.toString())),
+                          DataCell(Text(status.toString())),
+                          DataCell(Text(amount.toString())),
+                          DataCell(Text("$start → $end")),
+                          DataCell(
+                            IconButton(
+                              icon: const Icon(Icons.edit, color: Colors.blue),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        AddCouponForm(editCoupon: coupon),
+                                  ),
+                                ).then((value) {
+                                  if (value == true) loadCoupons();
+                                });
+                              },
+                            ),
+                          ),
+                          DataCell(
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => deleteCoupon(id),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+                ),
+    );
+  }
+}
 
-// class _AddCouponFormState extends State<AddCouponForm> {
-//   final _formKey = GlobalKey<FormState>();
+class AddCouponForm extends StatefulWidget {
+  final Map<String, dynamic>? editCoupon;
+  const AddCouponForm({super.key, this.editCoupon});
 
-//   String couponCode = '';
-//   String discountType = 'Fixed';
-//   double discountAmount = 0.0;
-//   double minimumPurchase = 0.0;
-//   DateTime? startDate;
-//   DateTime? endDate;
-//   String status = 'Active';
+  @override
+  State<AddCouponForm> createState() => _AddCouponFormState();
+}
 
-//   int? selectedCategoryId;
-//   int? selectedSubcategoryId;
-//   int? selectedProductId;
+class _AddCouponFormState extends State<AddCouponForm> {
+  final _formKey = GlobalKey<FormState>();
 
-//   List<Map<String, dynamic>> categories = [];
-//   List<Map<String, dynamic>> subcategories = [];
-//   List<Map<String, dynamic>> products = [];
+  String couponCode = "";
+  String discountType = "Fixed";
+  double discountAmount = 0.0;
+  double minimumPurchase = 0.0;
+  String status = "Active";
 
-//   List<Map<String, dynamic>> filteredSubcategories = [];
-//   List<Map<String, dynamic>> filteredProducts = [];
+  DateTime? startDate;
+  DateTime? endDate;
 
-//   bool isSaving = false;
+  bool isSaving = false;
 
-//   @override
-//   void initState() {
-//     super.initState();
-//     loadDropdownData();
-//   }
+  @override
+  void initState() {
+    super.initState();
+    loadEditData();
+  }
 
-//  Future<void> loadDropdownData() async {
-//   final cats = await ApiService.getCategories();
-//   final prods = await ApiService.getProducts();
+  void loadEditData() {
+    if (widget.editCoupon == null) return;
 
-//   List<Map<String, dynamic>> subs = [];
-//   if (cats.isNotEmpty) {
-//     // Fetch subcategories of the first category by default
-//     subs = await ApiService.getSubcategories(cats.first['CategoryID']);
-//   }
+    final c = widget.editCoupon!;
+    couponCode = c["Code"] ?? "";
+    discountType = c["DiscountType"] ?? "Fixed";
+    discountAmount = (c["DiscountAmount"] ?? 0).toDouble();
+    minimumPurchase = (c["MinimumPurchase"] ?? 0).toDouble();
+    status = c["Status"] ?? "Active";
 
-//   if (!mounted) return;
+    startDate = DateTime.tryParse(c["StartDate"] ?? "");
+    endDate = DateTime.tryParse(c["EndDate"] ?? "");
+  }
 
-//   setState(() {
-//     categories = List<Map<String, dynamic>>.from(cats);
-//     subcategories = List<Map<String, dynamic>>.from(subs);
-//     products = List<Map<String, dynamic>>.from(prods);
-//     filteredSubcategories = subcategories;
-//     filteredProducts = products;
-//   });
-// }
+  Future<void> pickStart() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+    if (d != null) setState(() => startDate = d);
+  }
 
-//   Future<void> pickStartDate() async {
-//     final picked = await showDatePicker(
-//       context: context,
-//       initialDate: DateTime.now(),
-//       firstDate: DateTime(2020),
-//       lastDate: DateTime(2030),
-//     );
-//     if (!mounted) return;
-//     if (picked != null) {
-//       setState(() => startDate = picked);
-//     }
-//   }
+  Future<void> pickEnd() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+    if (d != null) setState(() => endDate = d);
+  }
 
-//   Future<void> pickEndDate() async {
-//     final picked = await showDatePicker(
-//       context: context,
-//       initialDate: DateTime.now(),
-//       firstDate: DateTime(2020),
-//       lastDate: DateTime(2030),
-//     );
-//     if (!mounted) return;
-//     if (picked != null) {
-//       setState(() => endDate = picked);
-//     }
-//   }
+  Future<void> submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (startDate == null || endDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please select start & end dates")),
+      );
+      return;
+    }
 
-//   Future<void> submit() async {
-//     if (!_formKey.currentState!.validate()) return;
-//     if (startDate == null || endDate == null) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         const SnackBar(content: Text('Please pick start and end dates')),
-//       );
-//       return;
-//     }
+    setState(() => isSaving = true);
 
-//     setState(() => isSaving = true);
+    bool success;
+    final formattedStart = DateFormat("yyyy-MM-dd").format(startDate!);
+    final formattedEnd = DateFormat("yyyy-MM-dd").format(endDate!);
 
-//   final success = await ApiService.addCoupon(
-//   code: couponCode,
-//   discountType: discountType,
-//   discountAmount: discountAmount,
-//   minimumPurchase: minimumPurchase,
-//   startDate: DateFormat('yyyy-MM-dd').format(startDate!),
-//   endDate: DateFormat('yyyy-MM-dd').format(endDate!),
-//   status: status,
-//   categoryId: selectedCategoryId,
-//   subcategoryId: selectedSubcategoryId,
-//   productId: selectedProductId,
-// );
+    if (widget.editCoupon == null) {
+      success = await ApiService.addCoupon(
+        code: couponCode,
+        discountType: discountType,
+        discountAmount: discountAmount,
+        minimumPurchase: minimumPurchase,
+        startDate: formattedStart,
+        endDate: formattedEnd,
+        status: status,
+      );
+    } else {
+      success = await ApiService.updateCoupon(
+        id: widget.editCoupon!["CouponID"],
+        code: couponCode,
+        discountType: discountType,
+        discountAmount: discountAmount,
+        minimumPurchase: minimumPurchase,
+        startDate: formattedStart,
+        endDate: formattedEnd,
+        status: status,
+        categoryId: null,
+        subcategoryId: null,
+        productId: null,
+      );
+    }
 
+    if (!mounted) return;
 
-//     if (!mounted) return;
+    setState(() => isSaving = false);
 
-//     setState(() => isSaving = false);
+    if (success) {
+      Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to save coupon")),
+      );
+    }
+  }
 
-//     if (success) {
-//       Navigator.pop(context, true);
-//     } else {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         const SnackBar(content: Text('Failed to save coupon')),
-//       );
-//     }
-//   }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+          title:
+              Text(widget.editCoupon == null ? "Add Coupon" : "Edit Coupon")),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  decoration: const InputDecoration(labelText: "Coupon Code"),
+                  initialValue: couponCode,
+                  onChanged: (v) => couponCode = v,
+                  validator: (v) =>
+                      v == null || v.isEmpty ? "Required" : null,
+                ),
 
-//   @override
-//   Widget build(BuildContext context) {
+                DropdownButtonFormField(
+                  value: discountType,
+                  decoration:
+                      const InputDecoration(labelText: "Discount Type"),
+                  items: const [
+                    DropdownMenuItem(value: "Fixed", child: Text("Fixed Amount")),
+                    DropdownMenuItem(
+                        value: "Percentage", child: Text("Percentage %")),
+                  ],
+                  onChanged: (v) => setState(() => discountType = v!),
+                ),
 
-    
-//   // Defensive filters:
-// filteredSubcategories = selectedCategoryId == null
-//     ? []
-//     : subcategories
-//         .where((s) =>
-//             (s['CategoryID'] is int
-//                 ? s['CategoryID']
-//                 : int.tryParse('${s['CategoryID']}')) == selectedCategoryId)
-//         .toList();
+                TextFormField(
+                  decoration:
+                      const InputDecoration(labelText: "Discount Amount"),
+                  initialValue: discountAmount.toString(),
+                  keyboardType: TextInputType.number,
+                  onChanged: (v) =>
+                      discountAmount = double.tryParse(v) ?? 0.0,
+                ),
 
-//  filteredSubcategories = subcategories
-//         .where((s) => s['CategoryId'] == selectedCategoryId)
-//         .toList();
+                TextFormField(
+                  decoration:
+                      const InputDecoration(labelText: "Minimum Purchase"),
+                  initialValue: minimumPurchase.toString(),
+                  keyboardType: TextInputType.number,
+                  onChanged: (v) =>
+                      minimumPurchase = double.tryParse(v) ?? 0.0,
+                ),
 
+                const SizedBox(height: 12),
 
-// filteredProducts = selectedSubcategoryId == null
-//     ? []
-//     : products
-//         .where((p) =>
-//             (p['SubcategoryID'] is int
-//                 ? p['SubcategoryID']
-//                 : int.tryParse('${p['SubcategoryID']}')) == selectedSubcategoryId)
-//         .toList();
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(startDate == null
+                        ? "Start Date: Not selected"
+                        : "Start: ${DateFormat("yyyy-MM-dd").format(startDate!)}"),
+                    TextButton(onPressed: pickStart, child: const Text("Pick"))
+                  ],
+                ),
 
-//     return Scaffold(
-//       appBar: AppBar(title: const Text('Add Coupon')),
-//       body: Padding(
-//         padding: const EdgeInsets.all(16),
-//         child: SingleChildScrollView(
-//           child: Form(
-//             key: _formKey,
-//             child: Column(
-//               children: [
-//                 TextFormField(
-//                   decoration: const InputDecoration(labelText: 'Coupon Code'),
-//                   onChanged: (v) => couponCode = v,
-//                   validator: (v) => v == null || v.isEmpty ? 'Required' : null,
-//                 ),
-//                 DropdownButtonFormField<String>(
-//                   decoration: const InputDecoration(labelText: 'Discount Type'),
-//                   value: discountType,
-//                   items: const [
-//                     DropdownMenuItem(value: 'Fixed', child: Text('Fixed')),
-//                     DropdownMenuItem(value: 'Percentage', child: Text('Percentage')),
-//                   ],
-//                   onChanged: (v) => setState(() => discountType = v!),
-//                 ),
-//                 TextFormField(
-//                   decoration: const InputDecoration(labelText: 'Discount Amount'),
-//                   keyboardType: TextInputType.number,
-//                   onChanged: (v) => discountAmount = double.tryParse(v) ?? 0.0,
-//                   validator: (v) => v == null || v.isEmpty ? 'Required' : null,
-//                 ),
-//                 TextFormField(
-//                   decoration: const InputDecoration(labelText: 'Minimum Purchase'),
-//                   keyboardType: TextInputType.number,
-//                   onChanged: (v) => minimumPurchase = double.tryParse(v) ?? 0.0,
-//                   validator: (v) => v == null || v.isEmpty ? 'Required' : null,
-//                 ),
-//                 Row(
-//                   children: [
-//                     Expanded(
-//                       child: Text(
-//                         startDate == null
-//                             ? 'Start Date: Not selected'
-//                             : 'Start: ${DateFormat('yyyy-MM-dd').format(startDate!)}',
-//                       ),
-//                     ),
-//                     TextButton(onPressed: pickStartDate, child: const Text('Pick Start'))
-//                   ],
-//                 ),
-//                 Row(
-//                   children: [
-//                     Expanded(
-//                       child: Text(
-//                         endDate == null
-//                             ? 'End Date: Not selected'
-//                             : 'End: ${DateFormat('yyyy-MM-dd').format(endDate!)}',
-//                       ),
-//                     ),
-//                     TextButton(onPressed: pickEndDate, child: const Text('Pick End'))
-//                   ],
-//                 ),
-//                 DropdownButtonFormField<String>(
-//                   decoration: const InputDecoration(labelText: 'Status'),
-//                   value: status,
-//                   items: const [
-//                     DropdownMenuItem(value: 'Active', child: Text('Active')),
-//                     DropdownMenuItem(value: 'Expired', child: Text('Expired')),
-//                   ],
-//                   onChanged: (v) => setState(() => status = v!),
-//                 ),
-// DropdownButtonFormField<int>(
-//   decoration: const InputDecoration(labelText: 'Category'),
-//   value: selectedCategoryId != null &&
-//           categories.any((c) =>
-//               (c['id'] is int
-//                   ? c['id']
-//                   : int.tryParse('${c['id']}')) == selectedCategoryId)
-//       ? selectedCategoryId
-//       : null,
-//   items: categories.map((c) {
-//     final id = c['id'] is int ? c['id'] : int.tryParse('${c['id']}') ?? 0;
-//     return DropdownMenuItem<int>(
-//       value: id,
-//       child: Text('${c['name']}'),
-//     );
-//   }).toList(),
-//   onChanged: (v) {
-//     setState(() {
-//       selectedCategoryId = v;
-//       selectedSubcategoryId = null;
-//       selectedProductId = null;
-//     });
-//   },
-// ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(endDate == null
+                        ? "End Date: Not selected"
+                        : "End: ${DateFormat("yyyy-MM-dd").format(endDate!)}"),
+                    TextButton(onPressed: pickEnd, child: const Text("Pick"))
+                  ],
+                ),
 
-// DropdownButtonFormField<int>(
-//   decoration: const InputDecoration(labelText: 'Subcategory'),
-//   value: selectedSubcategoryId != null &&
-//           filteredSubcategories.any(
-//               (s) => s['Id'] == selectedSubcategoryId)
-//       ? selectedSubcategoryId
-//       : null,
-//   items: filteredSubcategories.map((s) {
-//     return DropdownMenuItem<int>(
-//       value: s['Id'] as int,
-//       child: Text('${s['Name']}'),
-//     );
-//   }).toList(),
-//   onChanged: (v) {
-//     setState(() {
-//       selectedSubcategoryId = v;
-//       selectedProductId = null;
-//     });
-//   },
-// ),
+                DropdownButtonFormField(
+                  value: status,
+                  decoration: const InputDecoration(labelText: "Status"),
+                  items: const [
+                    DropdownMenuItem(value: "Active", child: Text("Active")),
+                    DropdownMenuItem(value: "Expired", child: Text("Expired")),
+                  ],
+                  onChanged: (v) => setState(() => status = v!),
+                ),
 
-// const SizedBox(height: 20),
-// DropdownButtonFormField<int>(
-//   decoration: const InputDecoration(labelText: 'Product'),
-//   value: selectedProductId != null &&
-//           filteredProducts.any((p) =>
-//               (p['ProductID'] is int
-//                   ? p['ProductID']
-//                   : int.tryParse('${p['ProductID']}')) ==
-//               selectedProductId)
-//       ? selectedProductId
-//       : null,
-//   items: filteredProducts.map((p) {
-//     final id = p['ProductID'] is int
-//         ? p['ProductID']
-//         : int.tryParse('${p['ProductID']}') ?? 0;
-//     return DropdownMenuItem<int>(
-//       value: id,
-//       child: Text('${p['Name']}'),
-//     );
-//   }).toList(),
-//   onChanged: (v) {
-//     setState(() {
-//       selectedProductId = v;
-//     });
-//   },
-// ),
+                const SizedBox(height: 24),
 
-//                 const SizedBox(height: 20),
-//                 ElevatedButton(
-//                   onPressed: isSaving ? null : submit,
-//                   child: isSaving
-//                       ? const SizedBox(
-//                           width: 20,
-//                           height: 20,
-//                           child: CircularProgressIndicator(strokeWidth: 2),
-//                         )
-//                       : const Text('Save Coupon'),
-//                 ),
-//               ],
-//             ),
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-// }
+                ElevatedButton(
+                  onPressed: isSaving ? null : submit,
+                  child: isSaving
+                      ? const CircularProgressIndicator()
+                      : const Text("Save Coupon"),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

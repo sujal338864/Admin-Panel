@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use, use_build_context_synchronously, use_key_in_widget_constructors
 
+import 'package:admin_panel/pages/coupons_page.dart';
 import 'package:admin_panel/pages/full_analytics_page.dart';
 import 'package:admin_panel/services/order_service.dart';
 import 'package:flutter/material.dart';
@@ -43,6 +44,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     'Notifications',
     'SpecBuilder',
     'BulkProductUpload',
+    'CouponPage',
   ];
 
   // ---------- STATIC PAGES ----------
@@ -54,6 +56,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     VariantsPage(),
     AdminOrdersPage(),
     PostersPage(),
+    CouponPage(),
     NotificationPage(),
     SpecBuilderSplitPage(),
     BulkUploadPage(),
@@ -918,9 +921,12 @@ Widget _buildProductTable() {
                       _buildNavItem(Icons.widgets, 'Variants', 5),
                       _buildNavItem(Icons.receipt_long, 'Orders', 6),
                       _buildNavItem(Icons.image, 'Posters', 7),
-                      _buildNavItem(Icons.notifications, 'Notifications', 8),
-                      _buildNavItem(Icons.list_alt, 'SpecBuilder', 9),
-                      _buildNavItem(Icons.file_upload, 'BulkProductUpload', 10),
+                      _buildNavItem(Icons.file_upload, ' Coupons', 8),
+                      _buildNavItem(Icons.notifications, 'Notifications', 9),
+                      _buildNavItem(Icons.list_alt, 'SpecBuilder', 10),
+                      _buildNavItem(Icons.file_upload, 'BulkProductUpload', 11),
+                     
+                     
                     ],
                   ),
                 ),

@@ -1060,39 +1060,78 @@ static Future<void> addVariant(String variantName, int variantTypeId) async {
     }
     throw Exception('Failed to load coupons');
   }
-
-  static Future<bool> addCoupon({
-    required String code,
-    required String discountType,
-    required double discountAmount,
-    required double minimumPurchase,
-    required String startDate,
-    required String endDate,
-    required String status,
-    int? categoryId,
-    int? subcategoryId,
-    int? productId,
-  }) async {
-    final body = {
-      'code': code,
-      'discountType': discountType,
-      'discountAmount': discountAmount,
-      'minimumPurchase': minimumPurchase,
-      'startDate': startDate,
-      'endDate': endDate,
-      'status': status,
-    };
-    if (categoryId != null) body['categoryId'] = categoryId;
-    if (subcategoryId != null) body['subcategoryId'] = subcategoryId;
-    if (productId != null) body['productId'] = productId;
-
-    final res = await http.post(
-      Uri.parse('$baseUrl/coupons'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(body),
+static Future<bool> updateCoupon({
+  required int id,
+  required String code,
+  required String discountType,
+  required double discountAmount,
+  required double minimumPurchase,
+  required String startDate,
+  required String endDate,
+  required String status,
+  required int? categoryId,
+  required int? subcategoryId,
+  required int? productId,
+}) async {
+  try {
+    final response = await http.put(
+      Uri.parse("$baseUrl/coupons/$id"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode({
+        "Code": code,
+        "DiscountType": discountType,
+        "DiscountAmount": discountAmount,
+        "MinimumPurchase": minimumPurchase,
+        "StartDate": startDate,
+        "EndDate": endDate,
+        "Status": status,
+        "CategoryID": categoryId,
+        "SubcategoryID": subcategoryId,
+        "ProductID": productId,   // FIXED ✔
+      }),
     );
-    return res.statusCode == 201;
+
+    return response.statusCode == 200;
+  } catch (e) {
+    print("❌ updateCoupon error: $e");
+    return false;
   }
+}
+
+static Future<bool> addCoupon({
+  required String code,
+  required String discountType,
+  required double discountAmount,
+  required double minimumPurchase,
+  required String startDate,
+  required String endDate,
+  required String status,
+  int? categoryId,
+  int? subcategoryId,
+  int? productId,
+}) async {
+  final body = {
+    "code": code,
+    "discountType": discountType,
+    "discountAmount": discountAmount,
+    "minimumPurchase": minimumPurchase,
+    "startDate": startDate,
+    "endDate": endDate,
+    "status": status,
+    "categoryId": categoryId,
+    "subcategoryId": subcategoryId,
+    "productId": productId,
+  };
+
+  final res = await http.post(
+    Uri.parse("$baseUrl/coupons"),
+    headers: {"Content-Type": "application/json"},
+    body: jsonEncode(body),
+  );
+
+  return res.statusCode == 201;
+}
+
 
   static Future<bool> deleteCoupon(int couponId) async {
     final res = await http.delete(Uri.parse('$baseUrl/coupons/$couponId'));

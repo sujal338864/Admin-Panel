@@ -26,7 +26,7 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
 
     try {
       final response = await http.post(
-      Uri.parse('http://10.248.214.36:3001/api/admin/login'),
+      Uri.parse('https://admin-panel-xhuj.onrender.com/api/admin/login'),
 
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({

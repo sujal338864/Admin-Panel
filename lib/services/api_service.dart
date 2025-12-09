@@ -10,7 +10,8 @@ import 'package:http_parser/http_parser.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ApiService {
-  static const String baseUrl = "http://10.248.214.36:3001/api";
+ static const String baseUrl = "https://admin-panel-xhuj.onrender.com/api";
+
   static List<Map<String, dynamic>>? _cachedCategories;
 
 

@@ -11,13 +11,18 @@ const XLSX = require('xlsx');
 /* ===========================
    Helpers
    =========================== */
+async function uploadToSupabase(file, folder = "product/single") {
+  if (!file) throw new Error("No file received");
 
-async function uploadToSupabase(file, folder = "product") {
+  // generate file name
   const fileName = `${Date.now()}_${Math.random()
     .toString(36)
     .slice(2, 8)}_${file.originalname.replace(/\s+/g, "_")}`;
+
+  // define storage path
   const key = `${folder}/${fileName}`;
 
+  // upload to bucket "product"
   const { error } = await supabase.storage
     .from("product")
     .upload(key, file.buffer, {
@@ -27,6 +32,7 @@ async function uploadToSupabase(file, folder = "product") {
 
   if (error) throw error;
 
+  // return public URL
   return supabase.storage.from("product").getPublicUrl(key).data.publicUrl;
 }
 
@@ -277,7 +283,8 @@ router.post("/", upload.array("images", 20), async (req, res) => {
     const imageUrls = [];
     if (req.files && req.files.length) {
       for (const f of req.files) {
-        const url = await uploadToSupabase(f, "products");
+       const url = await uploadToSupabase(f, "product/single");
+
         imageUrls.push(url);
       }
     }
@@ -457,7 +464,6 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 /* ===========================
    POST /with-variants
    =========================== */
@@ -481,25 +487,28 @@ router.post("/with-variants", upload.any(), async (req, res) => {
       : [];
   } catch (err) {
     console.error("❌ Invalid JSON:", err);
-    return res
-      .status(400)
-      .json({ error: "Invalid JSON in parent or variantsPayload" });
+    return res.status(400).json({ error: "Invalid JSON in parent or variantsPayload" });
   }
 
   if (!parentJson || !parentJson.name) {
-    return res
-      .status(400)
-      .json({ error: "Parent JSON with name required" });
+    return res.status(400).json({ error: "Parent JSON with name required" });
   }
 
   const tx = new sql.Transaction(pool);
   const createdChildIds = [];
 
-  /* NEW: GROUP ID */
-  const groupId = Date.now();
+  const groupId = Date.now(); // NEW GROUP ID
 
   try {
     await tx.begin();
+
+    /* ===========================
+       FIX: Convert Parent Numbers
+       =========================== */
+    const parentPrice = parentJson.price ? Number(parentJson.price) : null;
+    const parentOfferPrice = parentJson.offerPrice ? Number(parentJson.offerPrice) : null;
+    const parentStock = parentJson.stock ? Number(parentJson.stock) : 0;
+    const parentQuantity = parentJson.quantity ? Number(parentJson.quantity) : 0;
 
     /* ===========================
        INSERT PARENT PRODUCT
@@ -507,30 +516,27 @@ router.post("/with-variants", upload.any(), async (req, res) => {
     const treq = tx.request();
     treq.input("Name", sql.NVarChar, parentJson.name);
     treq.input("Description", sql.NVarChar, parentJson.description || null);
-    treq.input("Price", sql.Decimal(10, 2), parentJson.price || null);
-    treq.input("OfferPrice", sql.Decimal(10, 2), parentJson.offerPrice || null);
-    treq.input("Quantity", sql.Int, parentJson.quantity ?? 0);
-    treq.input("Stock", sql.Int, parentJson.stock ?? 0);
+    treq.input("Price", sql.Decimal(10, 2), parentPrice);
+    treq.input("OfferPrice", sql.Decimal(10, 2), parentOfferPrice);
+    treq.input("Quantity", sql.Int, parentQuantity);
+    treq.input("Stock", sql.Int, parentStock);
     treq.input("CategoryID", sql.Int, parentJson.categoryId || null);
     treq.input("SubcategoryID", sql.Int, parentJson.subcategoryId || null);
     treq.input("BrandID", sql.Int, parentJson.brandId || null);
     treq.input("VideoUrl", sql.NVarChar, parentJson.videoUrl || null);
     treq.input("IsSponsored", sql.Bit, parentJson.isSponsored ? 1 : 0);
     treq.input("SKU", sql.NVarChar, parentJson.sku || null);
-
     treq.input("GroupID", sql.BigInt, groupId);
 
     const parentInsertSQL = `
-     INSERT INTO Products
-(Name, Description, Price, OfferPrice, Quantity, Stock, CategoryID,
- SubcategoryID, BrandID, IsSponsored, SKU, GroupID, VideoUrl,
- CreatedAt, UpdatedAt)
-VALUES
-(@Name, @Description, @Price, @OfferPrice, @Quantity, @Stock,
- @CategoryID, @SubcategoryID, @BrandID, @IsSponsored, @SKU, @GroupID, @VideoUrl,
- GETDATE(), GETDATE());
-
-
+      INSERT INTO Products
+      (Name, Description, Price, OfferPrice, Quantity, Stock, CategoryID,
+       SubcategoryID, BrandID, IsSponsored, SKU, GroupID, VideoUrl,
+       CreatedAt, UpdatedAt)
+      VALUES
+      (@Name, @Description, @Price, @OfferPrice, @Quantity, @Stock,
+       @CategoryID, @SubcategoryID, @BrandID, @IsSponsored, @SKU, @GroupID, @VideoUrl,
+       GETDATE(), GETDATE());
       SELECT SCOPE_IDENTITY() AS ProductID;
     `;
 
@@ -544,13 +550,10 @@ VALUES
       for (const f of filesByField["parentImages"]) {
         const url = await uploadToSupabase(f, "products/parent");
 
-        await tx
-          .request()
+        await tx.request()
           .input("ProductID", sql.Int, parentProductId)
           .input("ImageURL", sql.NVarChar, url)
-          .query(
-            "INSERT INTO ProductImages (ProductID, ImageURL) VALUES (@ProductID, @ImageURL)"
-          );
+          .query("INSERT INTO ProductImages (ProductID, ImageURL) VALUES (@ProductID, @ImageURL)");
       }
     }
 
@@ -558,62 +561,53 @@ VALUES
        INSERT CHILD VARIANTS
        =========================== */
     for (const combo of variantsPayload) {
-      const selections = Array.isArray(combo.selections)
-        ? combo.selections
-        : [];
+      const selections = Array.isArray(combo.selections) ? combo.selections : [];
 
       const comboLabel = combo.label || combo.combinationKey || "";
 
+      /* ===========================
+         FIX: convert child price/stock
+         =========================== */
+      const childPrice = combo.price ? Number(combo.price) : parentPrice;
+      const childOfferPrice = combo.offerPrice ? Number(combo.offerPrice) : parentOfferPrice;
+      const childStock = combo.stock ? Number(combo.stock) : 0;
+      const childQuantity = combo.quantity ? Number(combo.quantity) : 0;
+
       const childName = generateVariantProductName(
         parentJson.name,
-        selections.map(
-          (s) => s.value || s.Variant || s.VariantName || ""
-        )
+        selections.map(s => s?.value || s?.Variant || s?.VariantName || "")
       );
-
-      const price = combo.price ?? parentJson.price;
-      const offerPrice = combo.offerPrice ?? parentJson.offerPrice;
-      const stock = combo.stock ?? 0;
-      const quantity = combo.quantity ?? 0;
 
       const skuToUse =
         combo.sku ||
-        generateSKU(
-          parentJson.name,
-          selections.map((s) => s.value)
-        );
+        generateSKU(parentJson.name, selections.map(s => s?.value));
 
-      const childReq = tx
-        .request()
-        .input("Name", sql.NVarChar, childName)
-        .input("Description", sql.NVarChar, combo.description || null)
-        .input("Price", sql.Decimal(10, 2), price)
-        .input("OfferPrice", sql.Decimal(10, 2), offerPrice)
-        .input("Quantity", sql.Int, quantity)
-        .input("Stock", sql.Int, stock)
-        .input("CategoryID", sql.Int, parentJson.categoryId || null)
-        .input("SubcategoryID", sql.Int, parentJson.subcategoryId || null)
-        .input("BrandID", sql.Int, parentJson.brandId || null)
-        .input("IsSponsored", sql.Bit, parentJson.isSponsored ? 1 : 0)
-        .input("SKU", sql.NVarChar, skuToUse)
-        .input("ParentProductID", sql.Int, parentProductId)
-        .input("GroupID", sql.BigInt, groupId);
-        childReq.input("VideoUrl", sql.NVarChar, combo.videoUrl || null);
-
+      const childReq = tx.request();
+      childReq.input("Name", sql.NVarChar, childName);
+      childReq.input("Description", sql.NVarChar, combo.description || null);
+      childReq.input("Price", sql.Decimal(10, 2), childPrice);
+      childReq.input("OfferPrice", sql.Decimal(10, 2), childOfferPrice);
+      childReq.input("Quantity", sql.Int, childQuantity);
+      childReq.input("Stock", sql.Int, childStock);
+      childReq.input("CategoryID", sql.Int, parentJson.categoryId || null);
+      childReq.input("SubcategoryID", sql.Int, parentJson.subcategoryId || null);
+      childReq.input("BrandID", sql.Int, parentJson.brandId || null);
+      childReq.input("IsSponsored", sql.Bit, parentJson.isSponsored ? 1 : 0);
+      childReq.input("SKU", sql.NVarChar, skuToUse);
+      childReq.input("ParentProductID", sql.Int, parentProductId);
+      childReq.input("GroupID", sql.BigInt, groupId);
+      childReq.input("VideoUrl", sql.NVarChar, combo.videoUrl || null);
 
       const childInsertSQL = `
         INSERT INTO Products
-(Name, Description, Price, OfferPrice, Quantity, Stock, CategoryID,
- SubcategoryID, BrandID, IsSponsored, SKU, ParentProductID, GroupID, VideoUrl,
- CreatedAt, UpdatedAt)
-
-       VALUES
-(@Name, @Description, @Price, @OfferPrice, @Quantity, @Stock,
- @CategoryID, @SubcategoryID, @BrandID, @IsSponsored, @SKU,
- @ParentProductID, @GroupID, @VideoUrl,
- GETDATE(), GETDATE());
-
-
+        (Name, Description, Price, OfferPrice, Quantity, Stock, CategoryID,
+         SubcategoryID, BrandID, IsSponsored, SKU, ParentProductID, GroupID, VideoUrl,
+         CreatedAt, UpdatedAt)
+        VALUES
+        (@Name, @Description, @Price, @OfferPrice, @Quantity, @Stock,
+         @CategoryID, @SubcategoryID, @BrandID, @IsSponsored, @SKU,
+         @ParentProductID, @GroupID, @VideoUrl,
+         GETDATE(), GETDATE());
         SELECT SCOPE_IDENTITY() AS ProductID;
       `;
 
@@ -625,20 +619,11 @@ VALUES
          INSERT VARIANT SELECTIONS
          =========================== */
       for (const sel of selections) {
-        const vt =
-          sel.VariantTypeID ??
-          sel.variantTypeId ??
-          sel.typeId;
-
-        const vv =
-          sel.VariantID ??
-          sel.variantValueId ??
-          sel.variantId;
-
+        const vt = sel?.VariantTypeID ?? sel?.variantTypeId ?? sel?.typeId;
+        const vv = sel?.VariantID ?? sel?.variantValueId ?? sel?.variantId;
         if (!vt || !vv) continue;
 
-        await tx
-          .request()
+        await tx.request()
           .input("ProductID", sql.Int, childProductId)
           .input("VariantTypeID", sql.Int, vt)
           .input("VariantID", sql.Int, vv)
@@ -650,18 +635,14 @@ VALUES
       /* ===========================
          SAVE CHILD IMAGES
          =========================== */
-      const sanitizedKey = sanitizeComboKey(
-        combo.combinationKey || comboLabel
-      );
+      const sanitizedKey = sanitizeComboKey(combo.combinationKey || comboLabel);
       const fieldName = `images_${sanitizedKey}`;
-
       const comboFiles = filesByField[fieldName] || [];
 
       for (const f of comboFiles) {
         const url = await uploadToSupabase(f, "products/variants");
 
-        await tx
-          .request()
+        await tx.request()
           .input("ProductID", sql.Int, childProductId)
           .input("ImageURL", sql.NVarChar, url)
           .query(
@@ -680,12 +661,11 @@ VALUES
     });
   } catch (err) {
     console.error("❌ /with-variants error:", err);
-    try {
-      await tx.rollback();
-    } catch {}
+    try { await tx.rollback(); } catch {}
     res.status(500).json({ error: err.message });
   }
 });
+
 
 /* ===========================
    GET /:id/with-variants

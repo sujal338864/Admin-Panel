@@ -1,93 +1,86 @@
 const express = require("express");
 const router = express.Router();
-const db = require("../models/db_postgres");
+const pool = require("../models/db"); // pg Pool
 
-// ===============================
-// GET all variant types
-// ===============================
-router.get("/", async (_, res) => {
+// ---------------- GET all variant types ----------------
+router.get("/", async (req, res) => {
   try {
-    const { rows } = await db.query(
-      `SELECT id, variant_name, variant_type, added_date
-       FROM variant_types
-       ORDER BY id DESC`
-    );
-    res.json(rows);
+    const result = await pool.query(`
+      SELECT
+        variant_type_id AS "VariantTypeID",
+        variant_name AS "VariantName",
+        variant_type AS "VariantType",
+        added_date AS "AddedDate"
+      FROM variant_types
+      ORDER BY variant_type_id DESC
+    `);
+
+    res.json(result.rows);
   } catch (err) {
-    console.error("❌ GET variant types:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===============================
-// CREATE variant type
-// ===============================
+// ---------------- POST add new variant type ----------------
 router.post("/", async (req, res) => {
-  const { variantName, variantType } = req.body;
-
-  if (!variantName || !variantType)
-    return res.status(400).json({ error: "variantName & variantType required" });
-
   try {
-    const { rows } = await db.query(
+    const { variantName, variantType } = req.body;
+
+    await pool.query(
       `
       INSERT INTO variant_types (variant_name, variant_type, added_date)
       VALUES ($1, $2, NOW())
-      RETURNING id
       `,
       [variantName, variantType]
     );
 
-    res.json({ success: true, id: rows[0].id });
+    res.status(201).json({ success: true });
   } catch (err) {
-    console.error("❌ POST variantTypes:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===============================
-// UPDATE variant type
-// ===============================
+// ---------------- PUT update variant type ----------------
 router.put("/:id", async (req, res) => {
-  const { id } = req.params;
-  const { variantName, variantType } = req.body;
-
   try {
-    await db.query(
+    const { id } = req.params;
+    const { variantName, variantType } = req.body;
+
+    await pool.query(
       `
       UPDATE variant_types
       SET variant_name = $1,
           variant_type = $2
-      WHERE id = $3
+      WHERE variant_type_id = $3
       `,
       [variantName, variantType, id]
     );
 
     res.json({ success: true });
   } catch (err) {
-    console.error("❌ UPDATE variantTypes:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===============================
-// DELETE variant type
-// ===============================
+// ---------------- DELETE variant type ----------------
 router.delete("/:id", async (req, res) => {
   try {
-    await db.query(
-      `DELETE FROM variant_types WHERE id = $1`,
-      [req.params.id]
+    const { id } = req.params;
+
+    await pool.query(
+      `DELETE FROM variant_types WHERE variant_type_id = $1`,
+      [id]
     );
 
     res.json({ success: true });
   } catch (err) {
-    console.error("❌ DELETE variantTypes:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
 module.exports = router;
+
+
 
 
 // const express = require('express');
@@ -160,3 +153,100 @@ module.exports = router;
 // });
 
 // module.exports = router;
+
+
+
+
+
+
+// const express = require("express");
+// const router = express.Router();
+// const db = require("../models/db_postgres");
+
+// // ===============================
+// // GET all variant types
+// // ===============================
+// router.get("/", async (_, res) => {
+//   try {
+//     const { rows } = await db.query(
+//       `SELECT id, variant_name, variant_type, added_date
+//        FROM variant_types
+//        ORDER BY id DESC`
+//     );
+//     res.json(rows);
+//   } catch (err) {
+//     console.error("❌ GET variant types:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
+
+// // ===============================
+// // CREATE variant type
+// // ===============================
+// router.post("/", async (req, res) => {
+//   const { variantName, variantType } = req.body;
+
+//   if (!variantName || !variantType)
+//     return res.status(400).json({ error: "variantName & variantType required" });
+
+//   try {
+//     const { rows } = await db.query(
+//       `
+//       INSERT INTO variant_types (variant_name, variant_type, added_date)
+//       VALUES ($1, $2, NOW())
+//       RETURNING id
+//       `,
+//       [variantName, variantType]
+//     );
+
+//     res.json({ success: true, id: rows[0].id });
+//   } catch (err) {
+//     console.error("❌ POST variantTypes:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
+
+// // ===============================
+// // UPDATE variant type
+// // ===============================
+// router.put("/:id", async (req, res) => {
+//   const { id } = req.params;
+//   const { variantName, variantType } = req.body;
+
+//   try {
+//     await db.query(
+//       `
+//       UPDATE variant_types
+//       SET variant_name = $1,
+//           variant_type = $2
+//       WHERE id = $3
+//       `,
+//       [variantName, variantType, id]
+//     );
+
+//     res.json({ success: true });
+//   } catch (err) {
+//     console.error("❌ UPDATE variantTypes:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
+
+// // ===============================
+// // DELETE variant type
+// // ===============================
+// router.delete("/:id", async (req, res) => {
+//   try {
+//     await db.query(
+//       `DELETE FROM variant_types WHERE id = $1`,
+//       [req.params.id]
+//     );
+
+//     res.json({ success: true });
+//   } catch (err) {
+//     console.error("❌ DELETE variantTypes:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
+
+// module.exports = router;
+

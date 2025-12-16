@@ -3,12 +3,12 @@ const router = express.Router();
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
+const pool = require("../models/db"); // pg Pool
 const supabase = require("../models/supabaseClient");
-const db = require("../models/db_postgres"); // PostgreSQL ONLY
 
-/* ========================================
-   Helper: Upload to Supabase
-======================================== */
+// ===========================
+// Helper: Upload to Supabase
+// ===========================
 async function uploadToSupabase(file) {
   const fileName = `${Date.now()}_${file.originalname}`;
 
@@ -21,47 +21,52 @@ async function uploadToSupabase(file) {
 
   if (error) throw error;
 
-  return supabase.storage
-    .from("posters")
-    .getPublicUrl(data.fullPath).data.publicUrl;
+  return `https://zyryndjeojrzvoubsqsg.supabase.co/storage/v1/object/public/${data.fullPath}`;
 }
 
-/* ========================================
-   POST /api/posters
-======================================== */
+// ===========================
+// POST /api/posters
+// ===========================
 router.post("/", upload.array("images", 5), async (req, res) => {
   try {
     const { title, imageUrls } = req.body;
     let finalImageUrls = [];
 
-    if (req.files?.length > 0) {
+    // Case 1: Multipart upload
+    if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         const url = await uploadToSupabase(file);
         finalImageUrls.push(url);
       }
-    } else if (imageUrls) {
-      try {
-        const parsed = JSON.parse(imageUrls);
-        finalImageUrls = Array.isArray(parsed) ? parsed : [parsed];
-      } catch {
-        finalImageUrls = [imageUrls];
+    }
+    // Case 2: URLs from Flutter
+    else if (imageUrls) {
+      if (typeof imageUrls === "string") {
+        try {
+          const parsed = JSON.parse(imageUrls);
+          finalImageUrls = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          finalImageUrls = [imageUrls];
+        }
+      } else {
+        finalImageUrls = Array.isArray(imageUrls) ? imageUrls : [imageUrls];
       }
     }
 
     if (!title || finalImageUrls.length === 0) {
-      return res.status(400).json({
-        error: "Title and at least one image required",
-      });
+      return res.status(400).json({ error: "Title and image are required" });
     }
 
-    await db.query(
-      `INSERT INTO posters (title, imageUrl, createdAt)
-       VALUES ($1, $2, NOW())`,
+    await pool.query(
+      `
+      INSERT INTO posters (title, image_url)
+      VALUES ($1, $2)
+      `,
       [title, finalImageUrls[0]]
     );
 
     res.status(201).json({
-      message: "Poster added successfully",
+      message: "✅ Poster added successfully",
       imageUrl: finalImageUrls[0],
     });
   } catch (err) {
@@ -70,39 +75,39 @@ router.post("/", upload.array("images", 5), async (req, res) => {
   }
 });
 
-/* ========================================
-   GET posters
-======================================== */
-router.get("/", async (req, res) => {
+// ===========================
+// GET /api/posters
+// ===========================
+router.get("/", async (_req, res) => {
   try {
-    const result = await db.query(
+    const { rows } = await pool.query(
       `SELECT * FROM posters ORDER BY id DESC`
     );
-
-    res.json(result.rows);
+    res.json(rows);
   } catch (err) {
     console.error("❌ Error fetching posters:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Failed to fetch posters" });
   }
 });
 
-/* ========================================
-   DELETE poster
-======================================== */
+// ===========================
+// DELETE /api/posters/:id
+// ===========================
 router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    await db.query(`DELETE FROM posters WHERE id = $1`, [id]);
+    await pool.query(`DELETE FROM posters WHERE id = $1`, [id]);
 
     res.json({ message: "Poster deleted successfully" });
   } catch (err) {
     console.error("❌ Error deleting poster:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Failed to delete poster" });
   }
 });
 
 module.exports = router;
+
 
 
 // const express = require("express");

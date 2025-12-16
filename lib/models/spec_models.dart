@@ -4,7 +4,7 @@ class SpecField {
   final String name;
   final String inputType;
   final int sortOrder;
-  final List<String> options; // 🔴 NEW
+  final List<String> options;
 
   SpecField({
     required this.fieldId,
@@ -16,7 +16,9 @@ class SpecField {
   });
 
   factory SpecField.fromJson(Map<String, dynamic> json) {
-    final rawOptions = json['Options'] ?? json['options'];
+    // 🟢 options can be null / string / array → normalize
+    final rawOptions = json['options'];
+
     final List<String> opts = rawOptions == null
         ? <String>[]
         : rawOptions
@@ -27,11 +29,11 @@ class SpecField {
             .toList();
 
     return SpecField(
-      fieldId: json['FieldID'] ?? json['fieldId'],
-      sectionId: json['SectionID'] ?? json['sectionId'],
-      name: (json['Name'] ?? json['name'] ?? '').toString(),
-      inputType: (json['InputType'] ?? json['inputType'] ?? 'text').toString(),
-      sortOrder: json['SortOrder'] ?? json['sortOrder'] ?? 0,
+      fieldId: json['field_id'] ?? 0,          // ✅ NEVER NULL
+      sectionId: json['section_id'] ?? 0,      // ✅ NEVER NULL
+      name: (json['name'] ?? '').toString(),
+      inputType: (json['input_type'] ?? 'text').toString(),
+      sortOrder: json['sort_order'] ?? 0,      // ✅ FIX FOR CRASH
       options: opts,
     );
   }
@@ -51,11 +53,12 @@ class SpecSection {
   });
 
   factory SpecSection.fromJson(Map<String, dynamic> json) {
-    final fieldsJson = (json['fields'] ?? []) as List<dynamic>;
+    final fieldsJson = (json['fields'] as List?) ?? [];
+
     return SpecSection(
-      sectionId: json['SectionID'] ?? json['sectionId'],
-      name: (json['Name'] ?? json['name'] ?? '').toString(),
-      sortOrder: json['SortOrder'] ?? json['sortOrder'] ?? 0,
+      sectionId: json['section_id'] ?? 0,      // ✅ NEVER NULL
+      name: (json['name'] ?? '').toString(),
+      sortOrder: json['sort_order'] ?? 0,      // ✅ FIX FOR CRASH
       fields: fieldsJson
           .map((e) => SpecField.fromJson(e as Map<String, dynamic>))
           .toList(),

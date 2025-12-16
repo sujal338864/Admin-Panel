@@ -1,23 +1,26 @@
-// routes/products.js  (PostgreSQL + Supabase only)
+// routes/products.js (PostgreSQL)
 
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
-const upload = multer({ storage: multer.memoryStorage() });
-const supabase = require("../models/supabaseClient");
-const db = require("../models/db_postgres");
 const XLSX = require("xlsx");
 
-/* ===========================
-   Helpers
-   =========================== */
+const upload = multer({ storage: multer.memoryStorage() });
 
-async function uploadToSupabase(file, folder = "products") {
-  if (!file) throw new Error("No file received");
+const pool = require("../models/db"); // pg Pool
+const supabase = require("../models/supabaseClient");
+
+/* ===========================
+   HELPERS
+=========================== */
+
+async function uploadToSupabase(file, folder = "product/single") {
+  if (!file) throw new Error("No file");
 
   const fileName = `${Date.now()}_${Math.random()
     .toString(36)
     .slice(2, 8)}_${file.originalname.replace(/\s+/g, "_")}`;
+
   const key = `${folder}/${fileName}`;
 
   const { error } = await supabase.storage
@@ -29,223 +32,150 @@ async function uploadToSupabase(file, folder = "products") {
 
   if (error) throw error;
 
-  const { data } = supabase.storage.from("product").getPublicUrl(key);
-  return data.publicUrl;
+  return supabase.storage.from("product").getPublicUrl(key).data.publicUrl;
 }
 
 function sanitizeComboKey(k = "") {
-  return k
-    .toString()
-    .replace(/[^a-zA-Z0-9\-_.]/g, "_")
-    .replace(/_+/g, "_");
+  return k.toString().replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-function generateVariantProductName(parentName = "", variantSelections = []) {
-  const vals = (variantSelections || [])
-    .map((v) =>
-      typeof v === "string"
-        ? v
-        : v.value || v.variant || v.variantname || v.Variant || v.VariantName || ""
-    )
-    .filter(Boolean);
-
-  return vals.length ? `${parentName} (${vals.join(", ")})` : parentName;
+function generateVariantProductName(parent, selections = []) {
+  const vals = selections.map(v => v.value || v).filter(Boolean);
+  return vals.length ? `${parent} (${vals.join(", ")})` : parent;
 }
 
-function generateSKU(parentName = "", variantSelections = []) {
-  const parentCode =
-    (parentName || "")
-      .replace(/[^A-Za-z0-9]/g, "")
-      .slice(0, 6)
-      .toUpperCase() || "PRD";
-
-  const variantPart = (variantSelections || [])
-    .map((v) => {
-      const val =
-        typeof v === "string"
-          ? v
-          : v.value || v.variant || v.variantname || v.Variant || v.VariantName || "";
-      return val
-        .toString()
-        .split(/\s+/)
-        .map((s) => s[0] || "")
-        .join("")
-        .toUpperCase()
-        .slice(0, 3);
-    })
-    .filter(Boolean)
-    .join("-");
-
-  const suffix = Math.floor(1000 + Math.random() * 9000);
-  return `${parentCode}${variantPart ? "-" + variantPart : ""}-${suffix}`;
+function generateSKU(parent, selections = []) {
+  const base = parent.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase();
+  const part = selections.map(v => v[0]).join("").toUpperCase();
+  return `${base}-${part}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
-/* ======================================================
-   BULK UPLOAD (simple XLSX import)
-   ====================================================== */
+/* =======================================================
+   BULK UPLOAD (XLSX)
+======================================================= */
 
 router.post("/bulk-upload", upload.single("file"), async (req, res) => {
+  const client = await pool.connect();
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
+    if (!req.file) return res.status(400).json({ error: "No file" });
 
-    const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const wb = XLSX.read(req.file.buffer, { type: "buffer" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-    for (const row of rows) {
-      const name = row["Name"];
-      if (!name) continue;
+    await client.query("BEGIN");
 
-      const categoryName = row["CategoryName"];
-      const subcategoryName = row["SubcategoryName"];
-      const brandName = row["BrandName"];
+    for (const r of rows) {
+      if (!r.Name) continue;
 
-      // find category
-      let categoryId = null;
-      if (categoryName) {
-        const catRes = await db.query(
-          `SELECT categoryid FROM categories WHERE name = $1`,
-          [categoryName]
-        );
-        categoryId = catRes.rows[0]?.categoryid ?? null;
-      }
+      const cat = await client.query(
+        "SELECT category_id FROM categories WHERE name=$1",
+        [r.CategoryName]
+      );
 
-      // find subcategory
-      let subcategoryId = null;
-      if (subcategoryName) {
-        const subRes = await db.query(
-          `SELECT subcategoryid FROM subcategories WHERE name = $1`,
-          [subcategoryName]
-        );
-        subcategoryId = subRes.rows[0]?.subcategoryid ?? null;
-      }
+      const sub = await client.query(
+        "SELECT subcategory_id FROM subcategories WHERE name=$1",
+        [r.SubcategoryName]
+      );
 
-      // find brand
-      let brandId = null;
-      if (brandName) {
-        const brRes = await db.query(
-          `SELECT brandid FROM brands WHERE name = $1`,
-          [brandName]
-        );
-        brandId = brRes.rows[0]?.brandid ?? null;
-      }
+      const brand = await client.query(
+        "SELECT brand_id FROM brands WHERE name=$1",
+        [r.BrandName]
+      );
 
-      const parentInsert = await db.query(
+      const product = await client.query(
         `
         INSERT INTO products
-        (name, description, price, offerprice, quantity, stock,
-         categoryid, subcategoryid, brandid, sku, videourl,
-         createdat, updatedat)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now())
-        RETURNING productid
-      `,
+        (name, description, price, offer_price, quantity, stock,
+         category_id, subcategory_id, brand_id, sku, created_at, updated_at)
+        VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW())
+        RETURNING product_id
+        `,
         [
-          name,
-          row["Description"] || null,
-          row["Price"] || null,
-          row["OfferPrice"] || null,
-          row["Quantity"] || 0,
-          row["Stock"] || 0,
-          categoryId,
-          subcategoryId,
-          brandId,
-          row["SKU"] || null,
-          row["VideoUrl"] || null,
+          r.Name,
+          r.Description,
+          r.Price,
+          r.OfferPrice,
+          r.Quantity || 0,
+          r.Stock || 0,
+          cat.rows[0]?.category_id || null,
+          sub.rows[0]?.subcategory_id || null,
+          brand.rows[0]?.brand_id || null,
+          r.SKU,
         ]
       );
 
-      const parentId = parentInsert.rows[0].productid;
+      const pid = product.rows[0].product_id;
 
-      const images = [row["Image1"], row["Image2"], row["Image3"]];
-      for (const url of images) {
-        if (!url) continue;
-        await db.query(
-          `INSERT INTO productimages (productid, imageurl) VALUES ($1,$2)`,
-          [parentId, url]
+      for (const img of [r.Image1, r.Image2, r.Image3]) {
+        if (!img) continue;
+        await client.query(
+          "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+          [pid, img]
         );
       }
     }
 
-    res.json({ success: true, message: "Bulk upload completed" });
-  } catch (err) {
-    console.error("❌ Bulk upload error:", err);
-    res.status(500).json({ error: err.message });
+    await client.query("COMMIT");
+    res.json({ success: true });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
   }
 });
 
-/* ===========================
+/* =======================================================
    GET ALL PRODUCTS
-   =========================== */
-
+======================================================= */
 router.get("/", async (req, res) => {
   try {
-    const { rows } = await db.query(
-      `
+    const q = await pool.query(`
       SELECT
-        p.productid,
+        p.product_id,
         p.name,
         p.description,
         p.price,
-        p.offerprice,
+        p.offer_price,
         p.quantity,
         p.stock,
-        p.categoryid,
-        p.subcategoryid,
-        p.brandid,
-        p.issponsored,
-        p.parentproductid,
-        p.groupid,
         p.sku,
-        c.name AS categoryname,
-        s.name AS subcategoryname,
-        b.name AS brandname,
+        p.created_at,
+
+        p.category_id,
+        c.name AS category_name,
+
+        p.subcategory_id,
+        s.name AS subcategory_name,
+
+        p.brand_id,
+        b.name AS brand_name,
+
         (
-          SELECT string_agg(pi.imageurl, ',')
-          FROM productimages pi
-          WHERE pi.productid = p.productid
-        ) AS image_urls
+          SELECT ARRAY_AGG(image_url)
+          FROM product_images
+          WHERE product_id = p.product_id
+        ) AS images
+
       FROM products p
-      LEFT JOIN categories c ON p.categoryid = c.categoryid
-      LEFT JOIN subcategories s ON p.subcategoryid = s.subcategoryid
-      LEFT JOIN brands b ON p.brandid = b.brandid
-      WHERE p.is_deleted = false OR p.is_deleted IS NULL
-      ORDER BY p.productid DESC
-    `
-    );
+      LEFT JOIN categories c ON p.category_id = c.category_id
+      LEFT JOIN subcategories s ON p.subcategory_id = s.subcategory_id
+      LEFT JOIN brands b ON p.brand_id = b.brand_id
+      ORDER BY p.product_id DESC
+    `);
 
-    const products = rows.map((row) => ({
-      id: row.productid,
-      name: row.name,
-      description: row.description,
-      price: row.price,
-      offerPrice: row.offerprice,
-      quantity: row.quantity,
-      stock: row.stock,
-      categoryId: row.categoryid,
-      subcategoryId: row.subcategoryid,
-      brandId: row.brandid,
-      isSponsored: row.issponsored,
-      parentProductId: row.parentproductid,
-      groupId: row.groupid,
-      sku: row.sku,
-      categoryName: row.categoryname || "",
-      subcategoryName: row.subcategoryname || "",
-      brandName: row.brandname || "",
-      images: row.image_urls ? row.image_urls.split(",") : [],
-    }));
-
-    res.json(products);
-  } catch (err) {
-    console.error("❌ Products fetch error:", err);
-    res.status(500).json({ error: err.message });
+    res.json(q.rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-/* ===========================
-   CREATE PRODUCT (NO VARIANTS)
-   =========================== */
+
+/* =======================================================
+   CREATE PRODUCT (NON VARIANT)
+======================================================= */
 
 router.post("/", upload.array("images", 20), async (req, res) => {
   try {
@@ -255,261 +185,245 @@ router.post("/", upload.array("images", 20), async (req, res) => {
       price,
       offerPrice,
       quantity,
+      stock,
       categoryId,
       subcategoryId,
       brandId,
-      stock,
       isSponsored,
       sku,
     } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ error: "Name is required" });
-    }
+    if (!name) return res.status(400).json({ error: "Name required" });
 
     const groupId = Date.now();
-    const imageUrls = [];
 
-    if (req.files && req.files.length) {
-      for (const f of req.files) {
-        const url = await uploadToSupabase(f, "products/single");
-        imageUrls.push(url);
-      }
-    }
-
-    const insertRes = await db.query(
+    const product = await pool.query(
       `
       INSERT INTO products
-      (name, description, price, offerprice, quantity, stock,
-       categoryid, subcategoryid, brandid,
-       issponsored, sku, groupid, videourl,
-       createdat, updatedat)
+      (name, description, price, offer_price, quantity, stock,
+       category_id, subcategory_id, brand_id,
+       is_sponsored, sku, group_id, created_at, updated_at)
       VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())
-      RETURNING productid
-    `,
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+      RETURNING product_id
+      `,
       [
         name,
-        description || null,
-        price || null,
-        offerPrice || null,
+        description,
+        price,
+        offerPrice,
         quantity || 0,
         stock || 0,
-        categoryId || null,
-        subcategoryId || null,
-        brandId || null,
-        !!isSponsored,
-        sku || null,
+        categoryId,
+        subcategoryId,
+        brandId,
+        isSponsored || false,
+        sku,
         groupId,
-        null, // videourl
       ]
     );
 
-    const productId = insertRes.rows[0].productid;
+    const productId = product.rows[0].product_id;
 
-    for (const url of imageUrls) {
-      await db.query(
-        `INSERT INTO productimages (productid, imageurl) VALUES ($1,$2)`,
-        [productId, url]
-      );
-    }
-
-    res.status(201).json({ success: true, productId });
-  } catch (err) {
-    console.error("❌ Create product error:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/* ===========================
-   UPDATE PRODUCT
-   =========================== */
-
-router.put("/:id", upload.array("images", 20), async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ error: "Invalid ID" });
-
-    const body = req.body;
-    const newImageUrls = [];
-
-    if (req.files && req.files.length) {
+    if (req.files) {
       for (const f of req.files) {
-        const url = await uploadToSupabase(f, "products");
-        newImageUrls.push(url);
-      }
-    }
-
-    const fields = [];
-    const values = [];
-    let idx = 1;
-
-    const pushField = (col, value) => {
-      fields.push(`${col} = $${idx}`);
-      values.push(value);
-      idx++;
-    };
-
-    if (body.name !== undefined) pushField("name", body.name);
-    if (body.description !== undefined) pushField("description", body.description);
-    if (body.price !== undefined) pushField("price", body.price);
-    if (body.offerPrice !== undefined) pushField("offerprice", body.offerPrice);
-    if (body.quantity !== undefined) pushField("quantity", body.quantity);
-    if (body.stock !== undefined) pushField("stock", body.stock);
-    if (body.categoryId !== undefined) pushField("categoryid", body.categoryId);
-    if (body.subcategoryId !== undefined)
-      pushField("subcategoryid", body.subcategoryId);
-    if (body.brandId !== undefined) pushField("brandid", body.brandId);
-    if (body.isSponsored !== undefined)
-      pushField("issponsored", !!body.isSponsored);
-    if (body.sku !== undefined) pushField("sku", body.sku);
-
-    fields.push(`updatedat = now()`);
-
-    if (fields.length) {
-      values.push(id);
-      await db.query(
-        `
-        UPDATE products
-        SET ${fields.join(", ")}
-        WHERE productid = $${values.length}
-      `,
-        values
-      );
-    }
-
-    for (const url of newImageUrls) {
-      await db.query(
-        `INSERT INTO productimages (productid, imageurl) VALUES ($1,$2)`,
-        [id, url]
-      );
-    }
-
-    // Variant selections (if provided)
-    if (body.variantSelections) {
-      const selections =
-        typeof body.variantSelections === "string"
-          ? JSON.parse(body.variantSelections)
-          : body.variantSelections;
-
-      await db.query(
-        `DELETE FROM productvariantselections WHERE productid = $1`,
-        [id]
-      );
-
-      for (const sel of selections) {
-        const vt =
-          sel.variantTypeId ??
-          sel.VariantTypeID ??
-          sel.varianttypeid ??
-          sel.VariantTypeId;
-        const vv =
-          sel.variantId ??
-          sel.VariantID ??
-          sel.variantid ??
-          sel.VariantValueID;
-
-        if (!vt || !vv) continue;
-
-        await db.query(
-          `
-          INSERT INTO productvariantselections
-          (productid, varianttypeid, variantid, addeddate)
-          VALUES ($1,$2,$3,now())
-        `,
-          [id, vt, vv]
+        const url = await uploadToSupabase(f);
+        await pool.query(
+          "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+          [productId, url]
         );
       }
     }
 
-    res.json({ success: true, message: "Product updated" });
-  } catch (err) {
-    console.error("❌ Update product error:", err);
-    res.status(500).json({ error: err.message });
+    res.json({ success: true, productId });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-/* ===========================
-   DELETE PRODUCT (simple)
-   =========================== */
+/* =======================================================
+   UPDATE PRODUCT
+======================================================= */
+
+router.put("/:id", upload.array("images", 20), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "Invalid ID" });
+
+  try {
+    const {
+      name,
+      description,
+      price,
+      offerPrice,
+      quantity,
+      stock,
+      categoryId,
+      subcategoryId,
+      brandId,
+      isSponsored,
+      sku,
+    } = req.body;
+
+    await pool.query(
+      `
+      UPDATE products SET
+        name=$1,
+        description=$2,
+        price=$3,
+        offer_price=$4,
+        quantity=$5,
+        stock=$6,
+        category_id=$7,
+        subcategory_id=$8,
+        brand_id=$9,
+        is_sponsored=$10,
+        sku=$11,
+        updated_at=NOW()
+      WHERE product_id=$12
+      `,
+      [
+        name,
+        description,
+        price,
+        offerPrice,
+        quantity,
+        stock,
+        categoryId,
+        subcategoryId,
+        brandId,
+        isSponsored,
+        sku,
+        id,
+      ]
+    );
+
+    if (req.files) {
+      for (const f of req.files) {
+        const url = await uploadToSupabase(f);
+        await pool.query(
+          "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+          [id, url]
+        );
+      }
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* =======================================================
+   DELETE PRODUCT
+======================================================= */
 
 router.delete("/:id", async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ error: "Invalid ID" });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: "Invalid product ID" });
+  }
 
-    await db.query(
-      `DELETE FROM productvariantselections WHERE productid = $1`,
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // 🔍 Check product exists
+    const check = await client.query(
+      "SELECT product_id FROM products WHERE product_id = $1",
       [id]
     );
-    await db.query(`DELETE FROM productimages WHERE productid = $1`, [id]);
-    await db.query(`DELETE FROM products WHERE productid = $1`, [id]);
 
-    res.json({ success: true, message: "Product deleted" });
-  } catch (err) {
-    console.error("❌ Delete product error:", err);
-    res.status(500).json({ error: err.message });
+    if (check.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    // 🧹 DELETE CHILD RECORDS FIRST
+    await client.query(
+      "DELETE FROM order_items WHERE product_id = $1",
+      [id]
+    );
+
+    await client.query(
+      "DELETE FROM product_variant_selections WHERE product_id = $1",
+      [id]
+    );
+
+    await client.query(
+      "DELETE FROM product_images WHERE product_id = $1",
+      [id]
+    );
+
+    // 🗑️ DELETE PRODUCT
+    await client.query(
+      "DELETE FROM products WHERE product_id = $1",
+      [id]
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ success: true, message: "Product deleted successfully" });
+  } catch (e) {
+    await client.query("ROLLBACK");
+    console.error("❌ DELETE product failed:", e.message);
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
   }
 });
 
-/* ===========================
-   POST /with-variants
-   - Create parent + child variants
-   =========================== */
+
+
+
 
 router.post("/with-variants", upload.any(), async (req, res) => {
-  const client = await db.pool.connect();
+  const client = await pool.connect();
+  const files = req.files || [];
+
+  const filesByField = {};
+  for (const f of files) {
+    if (!filesByField[f.fieldname]) filesByField[f.fieldname] = [];
+    filesByField[f.fieldname].push(f);
+  }
+
+  let parentJson = null;
+  let variantsPayload = [];
 
   try {
-    const files = req.files || [];
-    const filesByField = {};
-    for (const f of files) {
-      if (!filesByField[f.fieldname]) filesByField[f.fieldname] = [];
-      filesByField[f.fieldname].push(f);
-    }
+    parentJson = req.body.parent ? JSON.parse(req.body.parent) : null;
+    variantsPayload = req.body.variantsPayload
+      ? JSON.parse(req.body.variantsPayload)
+      : [];
+  } catch (err) {
+    return res.status(400).json({ error: "Invalid JSON in parent or variantsPayload" });
+  }
 
-    let parentJson = null;
-    let variantsPayload = [];
+  if (!parentJson || !parentJson.name) {
+    return res.status(400).json({ error: "Parent JSON with name required" });
+  }
 
-    try {
-      parentJson = req.body.parent ? JSON.parse(req.body.parent) : null;
-      variantsPayload = req.body.variantsPayload
-        ? JSON.parse(req.body.variantsPayload)
-        : [];
-    } catch (err) {
-      console.error("❌ Invalid JSON:", err);
-      return res
-        .status(400)
-        .json({ error: "Invalid JSON in parent or variantsPayload" });
-    }
+  const createdChildIds = [];
+  const groupId = Date.now();
 
-    if (!parentJson || !parentJson.name) {
-      return res.status(400).json({ error: "Parent JSON with name required" });
-    }
-
-    const groupId = Date.now();
-
+  try {
     await client.query("BEGIN");
 
     const parentPrice = parentJson.price ? Number(parentJson.price) : null;
-    const parentOfferPrice = parentJson.offerPrice
-      ? Number(parentJson.offerPrice)
-      : null;
+    const parentOfferPrice = parentJson.offerPrice ? Number(parentJson.offerPrice) : null;
     const parentStock = parentJson.stock ? Number(parentJson.stock) : 0;
     const parentQuantity = parentJson.quantity ? Number(parentJson.quantity) : 0;
 
-    // Insert parent
-    const parentInsert = await client.query(
+    const parentRes = await client.query(
       `
       INSERT INTO products
-      (name, description, price, offerprice, quantity, stock,
-       categoryid, subcategoryid, brandid,
-       issponsored, sku, groupid, videourl,
-       createdat, updatedat)
+      (name, description, price, offer_price, quantity, stock,
+       category_id, subcategory_id, brand_id, is_sponsored,
+       sku, group_id, video_url, created_at, updated_at)
       VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())
-      RETURNING productid
-    `,
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+      RETURNING product_id
+      `,
       [
         parentJson.name,
         parentJson.description || null,
@@ -520,71 +434,53 @@ router.post("/with-variants", upload.any(), async (req, res) => {
         parentJson.categoryId || null,
         parentJson.subcategoryId || null,
         parentJson.brandId || null,
-        !!parentJson.isSponsored,
+        parentJson.isSponsored || false,
         parentJson.sku || null,
         groupId,
         parentJson.videoUrl || null,
       ]
     );
 
-    const parentProductId = parentInsert.rows[0].productid;
+    const parentProductId = parentRes.rows[0].product_id;
 
-    // parent images
-    if (filesByField["parentImages"]) {
-      for (const f of filesByField["parentImages"]) {
-        const url = await uploadToSupabase(f, "products/parent");
-        await client.query(
-          `INSERT INTO productimages (productid, imageurl) VALUES ($1,$2)`,
-          [parentProductId, url]
-        );
-      }
+    /* Parent images */
+    for (const f of filesByField["parentImages"] || []) {
+      const url = await uploadToSupabase(f, "products/parent");
+      await client.query(
+        "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+        [parentProductId, url]
+      );
     }
 
-    const createdChildIds = [];
-
-    // child variants
+    /* Child variants */
     for (const combo of variantsPayload) {
-      const selections = Array.isArray(combo.selections)
-        ? combo.selections
-        : [];
+      const selections = Array.isArray(combo.selections) ? combo.selections : [];
 
-      const childPrice =
-        combo.price !== undefined && combo.price !== null
-          ? Number(combo.price)
-          : parentPrice;
-      const childOfferPrice =
-        combo.offerPrice !== undefined && combo.offerPrice !== null
-          ? Number(combo.offerPrice)
-          : parentOfferPrice;
+      const childPrice = combo.price ? Number(combo.price) : parentPrice;
+      const childOfferPrice = combo.offerPrice ? Number(combo.offerPrice) : parentOfferPrice;
       const childStock = combo.stock ? Number(combo.stock) : 0;
       const childQuantity = combo.quantity ? Number(combo.quantity) : 0;
 
       const childName = generateVariantProductName(
         parentJson.name,
-        selections.map(
-          (s) =>
-            s?.value || s?.Variant || s?.VariantName || s?.variant || s?.variantname || ""
-        )
+        selections.map(s => s?.value || s?.Variant || s?.VariantName || "")
       );
 
       const skuToUse =
         combo.sku ||
-        generateSKU(
-          parentJson.name,
-          selections.map((s) => s?.value || s?.Variant || s?.VariantName)
-        );
+        generateSKU(parentJson.name, selections.map(s => s?.value));
 
-      const childInsert = await client.query(
+      const childRes = await client.query(
         `
         INSERT INTO products
-        (name, description, price, offerprice, quantity, stock,
-         categoryid, subcategoryid, brandid,
-         issponsored, sku, parentproductid, groupid, videourl,
-         createdat, updatedat)
+        (name, description, price, offer_price, quantity, stock,
+         category_id, subcategory_id, brand_id, is_sponsored,
+         sku, parent_product_id, group_id, video_url,
+         created_at, updated_at)
         VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now(),now())
-        RETURNING productid
-      `,
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
+        RETURNING product_id
+        `,
         [
           childName,
           combo.description || null,
@@ -595,7 +491,7 @@ router.post("/with-variants", upload.any(), async (req, res) => {
           parentJson.categoryId || null,
           parentJson.subcategoryId || null,
           parentJson.brandId || null,
-          !!parentJson.isSponsored,
+          parentJson.isSponsored || false,
           skuToUse,
           parentProductId,
           groupId,
@@ -603,38 +499,33 @@ router.post("/with-variants", upload.any(), async (req, res) => {
         ]
       );
 
-      const childProductId = childInsert.rows[0].productid;
+      const childProductId = childRes.rows[0].product_id;
       createdChildIds.push(childProductId);
 
-      // variant selections
+      /* Variant selections */
       for (const sel of selections) {
-        const vt =
-          sel?.VariantTypeID ?? sel?.variantTypeId ?? sel?.varianttypeid;
-        const vv =
-          sel?.VariantID ?? sel?.variantId ?? sel?.variantid;
+        const vt = sel?.VariantTypeID ?? sel?.variantTypeId ?? sel?.typeId;
+        const vv = sel?.VariantID ?? sel?.variantValueId ?? sel?.variantId;
         if (!vt || !vv) continue;
 
         await client.query(
           `
-          INSERT INTO productvariantselections
-          (productid, varianttypeid, variantid, addeddate)
-          VALUES ($1,$2,$3,now())
-        `,
+          INSERT INTO product_variant_selections
+          (product_id, variant_type_id, variant_id, added_date)
+          VALUES ($1,$2,$3,NOW())
+          `,
           [childProductId, vt, vv]
         );
       }
 
-      // child images
-      const sanitizedKey = sanitizeComboKey(
-        combo.combinationKey || combo.label || ""
-      );
+      /* Child images */
+      const sanitizedKey = sanitizeComboKey(combo.combinationKey || combo.label || "");
       const fieldName = `images_${sanitizedKey}`;
-      const comboFiles = filesByField[fieldName] || [];
 
-      for (const f of comboFiles) {
+      for (const f of filesByField[fieldName] || []) {
         const url = await uploadToSupabase(f, "products/variants");
         await client.query(
-          `INSERT INTO productimages (productid, imageurl) VALUES ($1,$2)`,
+          "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
           [childProductId, url]
         );
       }
@@ -649,310 +540,212 @@ router.post("/with-variants", upload.any(), async (req, res) => {
       childProductIds: createdChildIds,
     });
   } catch (err) {
-    console.error("❌ /with-variants error:", err);
-    try {
-      await db.query("ROLLBACK");
-    } catch (_) {}
+    await client.query("ROLLBACK");
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
-
-/* ===========================
-   GET /:id/with-variants
-   =========================== */
-
+  
 router.get("/:id/with-variants", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: "Invalid id" });
+
   try {
-    const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ error: "Invalid id" });
-
-    const parentRes = await db.query(
-      `SELECT * FROM products WHERE productid = $1`,
+    const parentQ = await pool.query(
+      "SELECT * FROM products WHERE product_id=$1",
       [id]
     );
-    const parent = parentRes.rows[0];
-    if (!parent) return res.status(404).json({ error: "Parent not found" });
+    if (!parentQ.rows.length) return res.status(404).json({ error: "Parent not found" });
 
-    const parentImgsRes = await db.query(
-      `SELECT productimageid, imageurl FROM productimages WHERE productid = $1`,
+    const parent = parentQ.rows[0];
+
+    const parentImgs = await pool.query(
+      "SELECT image_url FROM product_images WHERE product_id=$1",
       [id]
     );
-    parent.images = parentImgsRes.rows;
-    parent.videoUrl = parent.videourl || null;
+    parent.images = parentImgs.rows;
+    parent.videoUrl = parent.video_url || null;
 
-    const childrenRes = await db.query(
-      `SELECT * FROM products WHERE parentproductid = $1 ORDER BY productid ASC`,
+    const childrenQ = await pool.query(
+      "SELECT * FROM products WHERE parent_product_id=$1 ORDER BY product_id",
       [id]
     );
-    const children = childrenRes.rows;
 
-    for (const c of children) {
-      const imgsRes = await db.query(
-        `SELECT productimageid, imageurl FROM productimages WHERE productid = $1`,
-        [c.productid]
+    for (const c of childrenQ.rows) {
+      const imgs = await pool.query(
+        "SELECT image_url FROM product_images WHERE product_id=$1",
+        [c.product_id]
       );
-      c.images = imgsRes.rows;
+      c.images = imgs.rows;
 
-      const selsRes = await db.query(
-        `SELECT varianttypeid, variantid FROM productvariantselections WHERE productid = $1`,
-        [c.productid]
+      const sels = await pool.query(
+        "SELECT variant_type_id, variant_id FROM product_variant_selections WHERE product_id=$1",
+        [c.product_id]
       );
-      c.variantSelections = selsRes.rows;
-
-      c.videoUrl = c.videourl || null;
+      c.variantSelections = sels.rows;
+      c.videoUrl = c.video_url || null;
     }
 
-    res.json({ parent, children });
+    res.json({ parent, children: childrenQ.rows });
   } catch (err) {
-    console.error("❌ fetch with-variants error:", err);
     res.status(500).json({ error: err.message });
   }
 });
-
-/* ===========================
-   GET /by-group/:groupId
-   =========================== */
+  
 
 router.get("/by-group/:groupId", async (req, res) => {
-  try {
-    const groupId = Number(req.params.groupId);
-    if (!groupId) return res.status(400).json({ error: "Invalid GroupID" });
+  const groupId = Number(req.params.groupId);
+  if (!groupId) return res.status(400).json({ error: "Invalid GroupID" });
 
-    const prodRes = await db.query(
-      `SELECT * FROM products WHERE groupid = $1 ORDER BY productid`,
+  try {
+    const productsQ = await pool.query(
+      "SELECT * FROM products WHERE group_id=$1 ORDER BY product_id",
       [groupId]
     );
-    const products = prodRes.rows;
 
-    for (const p of products) {
-      const imgsRes = await db.query(
-        `SELECT productimageid, imageurl FROM productimages WHERE productid = $1`,
-        [p.productid]
+    for (const p of productsQ.rows) {
+      const imgs = await pool.query(
+        "SELECT image_url FROM product_images WHERE product_id=$1",
+        [p.product_id]
       );
-      p.images = imgsRes.rows;
+      p.images = imgs.rows;
 
-      const selsRes = await db.query(
-        `SELECT varianttypeid, variantid FROM productvariantselections WHERE productid = $1`,
-        [p.productid]
+      const sels = await pool.query(
+        "SELECT variant_type_id, variant_id FROM product_variant_selections WHERE product_id=$1",
+        [p.product_id]
       );
-      p.variantSelections = selsRes.rows;
+      p.variantSelections = sels.rows;
     }
 
-    res.json({ groupId, products });
+    res.json({ groupId, products: productsQ.rows });
   } catch (err) {
-    console.error("❌ group fetch error:", err);
     res.status(500).json({ error: err.message });
   }
 });
-
-/* ===========================
-   DELETE /:id/cascade
-   (parent + children)
-   =========================== */
-
+  
 router.delete("/:id/cascade", async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "Invalid id" });
 
-  const client = await db.pool.connect();
+  const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    const childRes = await client.query(
-      `SELECT productid FROM products WHERE parentproductid = $1`,
+    const childrenQ = await client.query(
+      "SELECT product_id FROM products WHERE parent_product_id=$1",
       [id]
     );
-    const childIds = childRes.rows.map((x) => x.productid);
 
-    for (const cid of childIds) {
-      await client.query(
-        `DELETE FROM productvariantselections WHERE productid = $1`,
-        [cid]
-      );
-      await client.query(
-        `DELETE FROM productimages WHERE productid = $1`,
-        [cid]
-      );
-      await client.query(`DELETE FROM products WHERE productid = $1`, [cid]);
+    for (const c of childrenQ.rows) {
+      await client.query("DELETE FROM product_variant_selections WHERE product_id=$1", [c.product_id]);
+      await client.query("DELETE FROM product_images WHERE product_id=$1", [c.product_id]);
+      await client.query("DELETE FROM products WHERE product_id=$1", [c.product_id]);
     }
 
-    await client.query(
-      `DELETE FROM productvariantselections WHERE productid = $1`,
-      [id]
-    );
-    await client.query(`DELETE FROM productimages WHERE productid = $1`, [id]);
-    await client.query(`DELETE FROM products WHERE productid = $1`, [id]);
+    await client.query("DELETE FROM product_variant_selections WHERE product_id=$1", [id]);
+    await client.query("DELETE FROM product_images WHERE product_id=$1", [id]);
+    await client.query("DELETE FROM products WHERE product_id=$1", [id]);
 
     await client.query("COMMIT");
-
     res.json({ success: true, message: "Parent + children deleted" });
   } catch (err) {
-    console.error("❌ cascade delete error:", err);
-    try {
-      await client.query("ROLLBACK");
-    } catch (_) {}
+    await client.query("ROLLBACK");
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
-
-/* ===========================
-   UPDATE CHILD PRODUCT
-   =========================== */
-
+ 
 router.put("/child/:id", upload.array("images", 20), async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "Invalid id" });
 
   try {
-    const body = req.body;
-    const imageUrls = [];
+    const { name, price, offerPrice, quantity, stock, sku } = req.body;
 
-    if (req.files && req.files.length) {
-      for (const f of req.files) {
-        const url = await uploadToSupabase(f, "products/variants");
-        imageUrls.push(url);
-      }
-    }
-
-    const fields = [];
-    const values = [];
-    let idx = 1;
-
-    const pushField = (col, val) => {
-      fields.push(`${col} = $${idx}`);
-      values.push(val);
-      idx++;
-    };
-
-    if (body.name !== undefined) pushField("name", body.name);
-    if (body.price !== undefined) pushField("price", body.price);
-    if (body.offerPrice !== undefined) pushField("offerprice", body.offerPrice);
-    if (body.quantity !== undefined) pushField("quantity", body.quantity);
-    if (body.stock !== undefined) pushField("stock", body.stock);
-    if (body.sku !== undefined) pushField("sku", body.sku);
-
-    fields.push(`updatedat = now()`);
-
-    if (fields.length) {
-      values.push(id);
-      await db.query(
-        `
-        UPDATE products
-        SET ${fields.join(", ")}
-        WHERE productid = $${values.length}
+    await pool.query(
+      `
+      UPDATE products SET
+        name=$1,
+        price=$2,
+        offer_price=$3,
+        quantity=$4,
+        stock=$5,
+        sku=$6,
+        updated_at=NOW()
+      WHERE product_id=$7
       `,
-        values
+      [name, price, offerPrice, quantity, stock, sku, id]
+    );
+
+    for (const f of req.files || []) {
+      const url = await uploadToSupabase(f, "products/variants");
+      await pool.query(
+        "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+        [id, url]
       );
-    }
-
-    for (const u of imageUrls) {
-      await db.query(
-        `INSERT INTO productimages (productid, imageurl) VALUES ($1,$2)`,
-        [id, u]
-      );
-    }
-
-    if (body.variantSelections) {
-      const selections =
-        typeof body.variantSelections === "string"
-          ? JSON.parse(body.variantSelections)
-          : body.variantSelections;
-
-      await db.query(
-        `DELETE FROM productvariantselections WHERE productid = $1`,
-        [id]
-      );
-
-      for (const sel of selections) {
-        const vt =
-          sel.variantTypeId ??
-          sel.VariantTypeID ??
-          sel.varianttypeid ??
-          sel.VariantTypeId;
-        const vv =
-          sel.variantId ??
-          sel.VariantID ??
-          sel.variantid ??
-          sel.VariantValueID;
-        if (!vt || !vv) continue;
-
-        await db.query(
-          `
-          INSERT INTO productvariantselections
-          (productid, varianttypeid, variantid, addeddate)
-          VALUES ($1,$2,$3,now())
-        `,
-          [id, vt, vv]
-        );
-      }
     }
 
     res.json({ success: true, message: "Child updated" });
   } catch (err) {
-    console.error("❌ child update error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-/* ===========================
-   SPECIFICATION ROUTES
-   =========================== */
 
-// Create spec section
+
+
 router.post("/spec/section", async (req, res) => {
   try {
     const { name, sortOrder } = req.body;
-    if (!name)
-      return res.status(400).json({ error: "Section name required" });
+    if (!name) return res.status(400).json({ error: "Section name required" });
 
-    const { rows } = await db.query(
+    const q = await pool.query(
       `
-      INSERT INTO specificationsections (name, sortorder)
-      VALUES ($1,$2)
-      RETURNING sectionid
-    `,
+      INSERT INTO specification_sections (name, sort_order)
+      VALUES ($1, $2)
+      RETURNING section_id
+      `,
       [name, sortOrder || 0]
     );
 
-    res.json({ success: true, sectionId: rows[0].sectionid });
+    res.json({ success: true, sectionId: q.rows[0].section_id });
   } catch (e) {
-    console.error("❌ spec/section:", e);
     res.status(500).json({ error: e.message });
   }
 });
-
-// Create spec field
+ 
 router.post("/spec/field", async (req, res) => {
   try {
     const { sectionId, name, inputType, sortOrder, options } = req.body;
+
     if (!sectionId || !name) {
-      return res
-        .status(400)
-        .json({ error: "sectionId & name required" });
+      return res.status(400).json({ error: "sectionId & name required" });
     }
 
-    const { rows } = await db.query(
+    const q = await pool.query(
       `
-      INSERT INTO specificationfields
-      (sectionid, name, inputtype, sortorder, options)
-      VALUES ($1,$2,$3,$4,$5)
-      RETURNING fieldid
-    `,
-      [sectionId, name, inputType || "text", sortOrder || 0, options || null]
+      INSERT INTO specification_fields
+      (section_id, name, input_type, sort_order, options)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING field_id
+      `,
+      [
+        sectionId,
+        name,
+        inputType || "text",
+        sortOrder || 0,
+        options || null,
+      ]
     );
 
-    res.json({ success: true, fieldId: rows[0].fieldid });
+    res.json({ success: true, fieldId: q.rows[0].field_id });
   } catch (e) {
-    console.error("❌ spec/field:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Get spec values for a product
 router.get("/spec/product/:productId", async (req, res) => {
   try {
     const productId = Number(req.params.productId);
@@ -960,48 +753,53 @@ router.get("/spec/product/:productId", async (req, res) => {
       return res.status(400).json({ error: "Invalid productId" });
     }
 
-    const { rows } = await db.query(
+    const q = await pool.query(
       `
-      SELECT productid, fieldid, value
-      FROM productspecificationvalues
-      WHERE productid = $1
-    `,
+      SELECT product_id, field_id, value
+      FROM product_specification_values
+      WHERE product_id = $1
+      `,
       [productId]
     );
 
-    res.json(rows);
+    res.json(q.rows);
   } catch (e) {
-    console.error("❌ spec/product:", e);
+    console.error("❌ spec/product error:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Get sections + fields
+
 router.get("/spec/sections-with-fields", async (req, res) => {
   try {
-    const secRes = await db.query(
-      `SELECT * FROM specificationsections ORDER BY sortorder, sectionid`
-    );
-    const fldRes = await db.query(
-      `SELECT * FROM specificationfields ORDER BY sortorder, fieldid`
+    const sectionsQ = await pool.query(
+      `
+      SELECT *
+      FROM specification_sections
+      ORDER BY sort_order, section_id
+      `
     );
 
-    const sections = secRes.rows;
-    const fields = fldRes.rows;
+    const fieldsQ = await pool.query(
+      `
+      SELECT *
+      FROM specification_fields
+      ORDER BY sort_order, field_id
+      `
+    );
 
-    const grouped = sections.map((sec) => ({
+    const result = sectionsQ.rows.map(sec => ({
       ...sec,
-      fields: fields.filter((f) => f.sectionid === sec.sectionid),
+      fields: fieldsQ.rows.filter(f => f.section_id === sec.section_id),
     }));
 
-    res.json({ sections: grouped });
+    res.json({ sections: result });
   } catch (e) {
-    console.error("❌ spec/sections-with-fields:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Save product specs
+
 router.post("/spec/product/save", async (req, res) => {
   try {
     const { productId, specs } = req.body;
@@ -1009,118 +807,120 @@ router.post("/spec/product/save", async (req, res) => {
       return res.status(400).json({ error: "productId required" });
     }
 
-    await db.query(
-      `DELETE FROM productspecificationvalues WHERE productid = $1`,
+    await pool.query(
+      "DELETE FROM product_specification_values WHERE product_id = $1",
       [productId]
     );
 
-    for (const s of specs || []) {
-      if (!s.value || s.value.toString().trim() === "") continue;
+    for (const s of specs) {
+      if (!s.value || s.value.trim() === "") continue;
 
-      await db.query(
+      await pool.query(
         `
-        INSERT INTO productspecificationvalues
-        (productid, fieldid, value, createdat, updatedat)
-        VALUES ($1,$2,$3,now(),now())
-      `,
-        [productId, s.fieldId || s.fieldid, s.value]
+        INSERT INTO product_specification_values
+        (product_id, field_id, value)
+        VALUES ($1, $2, $3)
+        `,
+        [productId, s.fieldId, s.value]
       );
     }
 
     res.json({ success: true });
   } catch (e) {
-    console.error("❌ spec/product/save:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Delete section (and fields)
+
 router.delete("/spec/section/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    if (!id)
-      return res.status(400).json({ error: "Invalid section id" });
+    if (!id) return res.status(400).json({ error: "Invalid section id" });
 
-    await db.query(
-      `DELETE FROM specificationfields WHERE sectionid = $1`,
+    await pool.query(
+      "DELETE FROM specification_fields WHERE section_id = $1",
       [id]
     );
-    await db.query(
-      `DELETE FROM specificationsections WHERE sectionid = $1`,
+
+    await pool.query(
+      "DELETE FROM specification_sections WHERE section_id = $1",
       [id]
     );
 
     res.json({ success: true });
   } catch (e) {
-    console.error("❌ delete spec/section:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Delete field
+
 router.delete("/spec/field/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    if (!id)
-      return res.status(400).json({ error: "Invalid field id" });
+    if (!id) return res.status(400).json({ error: "Invalid field id" });
 
-    await db.query(
-      `DELETE FROM specificationfields WHERE fieldid = $1`,
+    await pool.query(
+      "DELETE FROM specification_fields WHERE field_id = $1",
       [id]
     );
 
     res.json({ success: true });
   } catch (e) {
-    console.error("❌ delete spec/field:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Update section
 router.put("/spec/section/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { name, sortOrder } = req.body;
 
-    await db.query(
+    await pool.query(
       `
-      UPDATE specificationsections
-      SET name = $1, sortorder = $2, updatedat = now()
-      WHERE sectionid = $3
-    `,
+      UPDATE specification_sections
+      SET name = $1,
+          sort_order = $2
+      WHERE section_id = $3
+      `,
       [name, sortOrder || 0, id]
     );
 
     res.json({ success: true });
   } catch (e) {
-    console.error("❌ update spec/section:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Update field
 router.put("/spec/field/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { name, inputType, sortOrder } = req.body;
 
-    await db.query(
+    await pool.query(
       `
-      UPDATE specificationfields
-      SET name = $1, inputtype = $2, sortorder = $3, updatedat = now()
-      WHERE fieldid = $4
-    `,
-      [name, inputType || "text", sortOrder || 0, id]
+      UPDATE specification_fields
+      SET name = $1,
+          input_type = $2,
+          sort_order = $3
+      WHERE field_id = $4
+      `,
+      [name, inputType, sortOrder || 0, id]
     );
 
     res.json({ success: true });
   } catch (e) {
-    console.error("❌ update spec/field:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
+
+
+/* =======================================================
+   EXPORT
+======================================================= */
+
 module.exports = router;
+
 
 
 // // routes/products.js
@@ -1589,6 +1389,7 @@ module.exports = router;
 //     res.status(500).json({ error: err.message });
 //   }
 // });
+
 // /* ===========================
 //    POST /with-variants
 //    =========================== */

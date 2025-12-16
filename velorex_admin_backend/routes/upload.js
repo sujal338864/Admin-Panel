@@ -1,44 +1,58 @@
+// routes/uploadMultiple.js
 const express = require("express");
 const multer = require("multer");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
 
 const router = express.Router();
+
+// Multer memory storage
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Supabase service role
+// Supabase client (service role)
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// ===============================
+// POST /upload-multiple
+// ===============================
 router.post("/upload-multiple", upload.array("files", 10), async (req, res) => {
   try {
-    if (!req.files || req.files.length === 0)
+    if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "No files uploaded" });
+    }
 
     const uploadedFiles = [];
 
     for (const file of req.files) {
       const ext = file.originalname.split(".").pop();
       const fileName = `${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
-      const path = `product/${fileName}`;
+      const filePath = `product/${fileName}`;
 
+      // Upload to Supabase Storage
       const { error } = await supabase.storage
         .from("product")
-        .upload(path, file.buffer, {
+        .upload(filePath, file.buffer, {
           contentType: file.mimetype,
           upsert: false,
         });
 
       if (error) throw error;
 
-      const { data } = supabase.storage.from("product").getPublicUrl(path);
+      // Get public URL
+      const { data } = supabase.storage
+        .from("product")
+        .getPublicUrl(filePath);
 
-      uploadedFiles.push({ filename: fileName, url: data.publicUrl });
+      uploadedFiles.push({
+        filename: fileName,
+        url: data.publicUrl,
+      });
     }
 
-    res.json({ uploadedFiles });
+    res.json({ success: true, uploadedFiles });
   } catch (err) {
     console.error("❌ Upload error:", err);
     res.status(500).json({ error: err.message });
@@ -46,6 +60,8 @@ router.post("/upload-multiple", upload.array("files", 10), async (req, res) => {
 });
 
 module.exports = router;
+
+
 
 // const express = require('express');
 // const multer = require('multer');
@@ -151,6 +167,57 @@ module.exports = router;
 //     res.json({ url: data.publicUrl });
 //   } catch (err) {
 //     console.error(err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
+
+// module.exports = router;
+
+
+
+// const express = require("express");
+// const multer = require("multer");
+// const { createClient } = require("@supabase/supabase-js");
+// require("dotenv").config();
+
+// const router = express.Router();
+// const upload = multer({ storage: multer.memoryStorage() });
+
+// // Supabase service role
+// const supabase = createClient(
+//   process.env.SUPABASE_URL,
+//   process.env.SUPABASE_SERVICE_ROLE_KEY
+// );
+
+// router.post("/upload-multiple", upload.array("files", 10), async (req, res) => {
+//   try {
+//     if (!req.files || req.files.length === 0)
+//       return res.status(400).json({ error: "No files uploaded" });
+
+//     const uploadedFiles = [];
+
+//     for (const file of req.files) {
+//       const ext = file.originalname.split(".").pop();
+//       const fileName = `${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
+//       const path = `product/${fileName}`;
+
+//       const { error } = await supabase.storage
+//         .from("product")
+//         .upload(path, file.buffer, {
+//           contentType: file.mimetype,
+//           upsert: false,
+//         });
+
+//       if (error) throw error;
+
+//       const { data } = supabase.storage.from("product").getPublicUrl(path);
+
+//       uploadedFiles.push({ filename: fileName, url: data.publicUrl });
+//     }
+
+//     res.json({ uploadedFiles });
+//   } catch (err) {
+//     console.error("❌ Upload error:", err);
 //     res.status(500).json({ error: err.message });
 //   }
 // });

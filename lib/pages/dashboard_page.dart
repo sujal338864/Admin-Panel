@@ -1,4 +1,4 @@
-// ignore_for_file: deprecated_member_use, use_build_context_synchronously, use_key_in_widget_constructors
+// ignore_for_file: deprecated_member_use, use_build_context_synchronously, use_key_in_widget_constructors, unused_field, unused_element
 
 import 'package:admin_panel/pages/coupons_page.dart';
 import 'package:admin_panel/pages/full_analytics_page.dart';

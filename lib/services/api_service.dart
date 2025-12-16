@@ -10,8 +10,7 @@ import 'package:http_parser/http_parser.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ApiService {
- static const String baseUrl = "https://admin-panel-xhuj.onrender.com/api";
-
+  static const String baseUrl = "http://localhost:3001/api";
   static List<Map<String, dynamic>>? _cachedCategories;
 
 
@@ -712,23 +711,46 @@ static Future<bool> deleteSpecField(int fieldId) async {
   // =============================
 // 🟣 GET SUBCATEGORIES BY CATEGORY ID
 // =============================
-static Future<List<Map<String, dynamic>>> getSubcategories(int categoryId) async {
-  try {
-    final response = await http.get(
-      Uri.parse('$baseUrl/subcategories?categoryId=$categoryId'),
-    );
+static Future<List<Map<String, dynamic>>> getSubcategories([int? categoryId]) async {
+  String url = '$baseUrl/subcategories';
 
-    if (response.statusCode == 200) {
-      final List data = json.decode(response.body);
-      return data.map((e) => Map<String, dynamic>.from(e)).toList();
-    } else {
-      throw Exception('Failed to load subcategories: ${response.statusCode}');
-    }
-  } catch (e) {
-    print('❌ Error fetching subcategories: $e');
-    return [];
+  if (categoryId != null) {
+    url += '?categoryId=$categoryId';
+  }
+
+  final response = await http.get(
+    Uri.parse(url),
+    headers: {
+  'Content-Type': 'application/json',
+},
+
+  );
+
+  if (response.statusCode == 200) {
+    return List<Map<String, dynamic>>.from(jsonDecode(response.body));
+  } else {
+    throw Exception('Failed to load subcategories');
   }
 }
+
+
+// static Future<List<Map<String, dynamic>>> getSubcategories(int categoryId) async {
+//   try {
+//     final response = await http.get(
+//       Uri.parse('$baseUrl/subcategories?categoryId=$categoryId'),
+//     );
+
+//     if (response.statusCode == 200) {
+//       final List data = json.decode(response.body);
+//       return data.map((e) => Map<String, dynamic>.from(e)).toList();
+//     } else {
+//       throw Exception('Failed to load subcategories: ${response.statusCode}');
+//     }
+//   } catch (e) {
+//     print('❌ Error fetching subcategories: $e');
+//     return [];
+//   }
+// }
 
   static Future<bool> addSubcategory(int categoryId, String name) async {
     final res = await http.post(
@@ -754,37 +776,22 @@ static Future<List<Map<String, dynamic>>> getSubcategories(int categoryId) async
   }
 
  // =============== BRANDS ===============
-
 static Future<List<Map<String, dynamic>>> getBrands() async {
-  print("🔵 Fetching Brands from: $baseUrl/brands");
-
   final res = await http.get(Uri.parse('$baseUrl/brands'));
-  print("🟢 Response Code: ${res.statusCode}");
-  print("🟢 Raw Response: ${res.body}");
 
-  if (res.statusCode == 200) {
-    final List data = json.decode(res.body);
-    print("🟡 Total Brands Received: ${data.length}");
+  final List data = jsonDecode(res.body);
 
-    final mapped = data.map<Map<String, dynamic>>((e) {
-      print("➡️ Mapping Brand Row: $e");
-      return {
-        'BrandID': e['BrandID'] ?? e['id'],
-        'Name': e['Name'] ?? e['name'],
-        'CategoryID': e['CategoryID'] ?? e['categoryId'],
-        'CategoryName': e['CategoryName'] ?? e['categoryName'],
-        'SubcategoryID': e['SubcategoryID'] ?? e['subcategoryId'],
-        'SubcategoryName': e['SubcategoryName'] ?? e['subcategoryName'],
-        'CreatedAt': e['CreatedAt']?.toString(),
-      };
-    }).toList();
-
-    print("🟣 Final Mapped Brands: $mapped");
-    return mapped;
-  }
-
-  throw Exception("Failed to load brands");
+  return data.map((b) => {
+        'BrandID': b['brand_id'],
+        'Name': b['name'],
+        'CategoryID': b['category_id'],
+        'SubcategoryID': b['subcategory_id'],
+        'CategoryName': b['category_name'],
+        'SubcategoryName': b['subcategory_name'],
+        'CreatedAt': b['created_at'],
+      }).toList();
 }
+
 
 static Future<bool> addBrand({
   required String name,

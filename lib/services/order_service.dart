@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class AdminOrderService {
-static const String baseUrl = "https://admin-panel-xhuj.onrender.com/api/admin/orders";
+static const String baseUrl =
+  "http://localhost:3001/api/admin/orders";
+
 
 
   // 🟢 Get all orders

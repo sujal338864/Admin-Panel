@@ -14,13 +14,11 @@ import 'pages/varients_page.dart';
 
 Future<void> main() async {
 WidgetsFlutterBinding.ensureInitialized();
- HardwareKeyboard.instance.addHandler((event) {
-    try {
-      return false;
-    } catch (e) {
-      return false;
-    }
-  });
+ // Fix duplicate key events on Flutter Web
+  HardwareKeyboard.instance.removeHandler(
+    HardwareKeyboard.instance.handleKeyEvent,
+  );
+
 
   await Supabase.initialize(
     url: 'https://zyryndjeojrzvoubsqsg.supabase.co',

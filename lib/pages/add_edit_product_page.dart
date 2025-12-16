@@ -1,6 +1,6 @@
 // add_edit_product_page.dart
 // ignore_for_file: unnecessary_type_check, unnecessary_null_comparison
-
+// kmmkmk
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -71,19 +71,34 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
   Map<int, TextEditingController> specControllers = {}; // fieldId -> controller
   bool isLoadingSpecs = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _initAll();
+int? _getCategoryId(Map<String, dynamic> m) =>
+    _toIntSafe(m['CategoryID'] ?? m['category_id']);
+
+int? _getSubcategoryId(Map<String, dynamic> m) =>
+    _toIntSafe(m['SubcategoryID'] ?? m['subcategory_id']);
+
+int? _getBrandId(Map<String, dynamic> m) =>
+    _toIntSafe(m['BrandID'] ?? m['brand_id']);
+
+@override
+void initState() {
+  super.initState();
+  _initAll();
+}
+
+Future<void> _initAll() async {
+  // 1️⃣ Load master data
+  await loadData();
+
+  // 2️⃣ Load existing product (sets selected IDs)
+  if (widget.productId != null) {
+    await loadExistingProduct(widget.productId!);
   }
 
-  Future<void> _initAll() async {
-    await loadData();
-    await _loadSpecTemplateAndValues(); // specs for this productId (parent OR child)
-    if (widget.productId != null) {
-      await loadExistingProduct(widget.productId!);
-    }
-  }
+  // 3️⃣ Load specs LAST
+  await _loadSpecTemplateAndValues();
+}
+
 
   @override
   void dispose() {
@@ -100,61 +115,38 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
 
     super.dispose();
   }
+Future<void> loadData() async {
+  try {
+    final cats = await ApiService.getCategories();
+    final brs = await ApiService.getBrands();
+    final vTypes = await ApiService.getVariantTypes();
 
-  /// ---------------------- INITIAL DATA LOAD ----------------------
-  Future<void> loadData() async {
-    try {
-      final cats = await ApiService.getCategories();
-      final brs = await ApiService.getBrands();
-      final vTypes = await ApiService.getVariantTypes();
+    final normalizedVT = <Map<String, dynamic>>[];
+    if (vTypes is List) {
+      for (final e in vTypes) {
+        final id = _toIntSafe(
+            e['VariantTypeID'] ?? e['id'] ?? e['VariantTypeId']);
+        final name =
+            e['VariantType'] ?? e['VariantName'] ?? e['name'];
 
-      // Normalize variantTypes to {id:int, name:String}
-      final normalizedVT = <Map<String, dynamic>>[];
-      if (vTypes is List) {
-        for (final e in vTypes) {
-          if (e is Map) {
-            final rawId = e['VariantTypeID'] ??
-                e['id'] ??
-                e['VariantTypeId'] ??
-                e['variantTypeId'];
-            final rawName =
-                e['VariantType'] ?? e['VariantName'] ?? e['name'] ?? e['variantName'];
-            final id = _toIntSafe(rawId);
-            final name = rawName?.toString() ?? 'Variant';
-            if (id != null) {
-              normalizedVT.add({'id': id, 'name': name});
-            } else {
-              normalizedVT.add({'id': name.hashCode, 'name': name});
-            }
-          } else {
-            normalizedVT.add({'id': e.hashCode, 'name': e.toString()});
-          }
+        if (id != null) {
+          normalizedVT.add({'id': id, 'name': name.toString()});
         }
-      }
-
-      setState(() {
-        categories = List<Map<String, dynamic>>.from(cats);
-        brands = List<Map<String, dynamic>>.from(brs);
-        variantTypes = normalizedVT;
-        if (categories.isNotEmpty) {
-          selectedCategoryId = categories.first['CategoryID'];
-        }
-      });
-
-      if (selectedCategoryId != null) {
-        final subs = await ApiService.getSubcategories(selectedCategoryId!);
-        setState(
-          () => filteredSubcategories = List<Map<String, dynamic>>.from(subs),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load data: $e')),
-        );
       }
     }
+
+    if (!mounted) return;
+
+    setState(() {
+      categories = List<Map<String, dynamic>>.from(cats);
+      brands = List<Map<String, dynamic>>.from(brs);
+      variantTypes = normalizedVT;
+      // ❌ DO NOT auto-select category here
+    });
+  } catch (e) {
+    debugPrint('❌ loadData error: $e');
   }
+}
 
   int? _toIntSafe(dynamic v) {
     if (v == null) return null;
@@ -1135,60 +1127,76 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
                 const SizedBox(height: 16),
 
                 // Category / Subcategory / Brand
-                DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(
-                    labelText: 'Category',
-                    prefixIcon: Icon(Icons.category),
-                    border: OutlineInputBorder(),
-                  ),
-                  value: selectedCategoryId,
-                  items: categories.map((cat) {
-                    final v = cat['CategoryID'];
-                    final label =
-                        (cat['Name'] ?? cat['name'] ?? cat['CategoryName'] ?? '')
-                            .toString();
-                    final val = _toIntSafe(v);
-                    return DropdownMenuItem<int>(value: val, child: Text(label));
-                  }).toList(),
-                  onChanged: (v) => onCategoryChanged(v),
-                ),
+DropdownButtonFormField<int>(
+  decoration: const InputDecoration(
+    labelText: 'Category',
+    border: OutlineInputBorder(),
+  ),
+  value: categories.any(
+    (c) => _getCategoryId(c) == selectedCategoryId,
+  )
+      ? selectedCategoryId
+      : null,
+  items: categories.map((c) {
+    final id = _getCategoryId(c);
+    if (id == null) return null;
+    return DropdownMenuItem(
+      value: id,
+      child: Text(c['Name'].toString()),
+    );
+  }).whereType<DropdownMenuItem<int>>().toList(),
+  onChanged: (v) => onCategoryChanged(v!),
+),
+
+
+
                 const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(
-                    labelText: 'Subcategory',
-                    prefixIcon: Icon(Icons.subdirectory_arrow_right),
-                    border: OutlineInputBorder(),
-                  ),
-                  value: selectedSubcategoryId,
-                  items: filteredSubcategories.map((s) {
-                    final val = _toIntSafe(s['SubcategoryID'] ?? s['id']);
-                    final label = (s['Name'] ?? s['name'] ?? '').toString();
-                    return DropdownMenuItem<int>(value: val, child: Text(label));
-                  }).toList(),
-                  onChanged: (v) => onSubcategoryChanged(v),
-                ),
+            DropdownButtonFormField<int>(
+  decoration: const InputDecoration(
+    labelText: 'Subcategory',
+    border: OutlineInputBorder(),
+  ),
+  value: filteredSubcategories.any(
+    (s) => _getSubcategoryId(s) == selectedSubcategoryId,
+  )
+      ? selectedSubcategoryId
+      : null,
+  items: filteredSubcategories.map((s) {
+    final id = _getSubcategoryId(s);
+    if (id == null) return null;
+    return DropdownMenuItem(
+      value: id,
+      child: Text(s['Name'].toString()),
+    );
+  }).whereType<DropdownMenuItem<int>>().toList(),
+  onChanged: onSubcategoryChanged,
+),
+
+
                 const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  decoration: const InputDecoration(
-                    labelText: 'Brand',
-                    prefixIcon: Icon(Icons.branding_watermark),
-                    border: OutlineInputBorder(),
-                  ),
-                  value: (selectedBrandId != null &&
-                          filteredBrands.any(
-                            (b) => _toIntSafe(b["BrandID"]) == selectedBrandId,
-                          ))
-                      ? selectedBrandId
-                      : null,
-                  items: filteredBrands.map((b) {
-                    final id = _toIntSafe(b["BrandID"]);
-                    return DropdownMenuItem<int>(
-                      value: id,
-                      child: Text(b["Name"].toString()),
-                    );
-                  }).toList(),
-                  onChanged: (v) => setState(() => selectedBrandId = v),
-                ),
+DropdownButtonFormField<int>(
+  decoration: const InputDecoration(
+    labelText: 'Brand',
+    border: OutlineInputBorder(),
+  ),
+  value: filteredBrands.any(
+    (b) => _getBrandId(b) == selectedBrandId,
+  )
+      ? selectedBrandId
+      : null,
+  items: filteredBrands.map((b) {
+    final id = _getBrandId(b);
+    if (id == null) return null;
+    return DropdownMenuItem(
+      value: id,
+      child: Text(b['Name'].toString()),
+    );
+  }).whereType<DropdownMenuItem<int>>().toList(),
+  onChanged: (v) => setState(() => selectedBrandId = v),
+),
+
+
+
 
                 const SizedBox(height: 20),
 
@@ -1557,20 +1565,24 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
   }
 
   // helpers reused from earlier code for category/subcategory change (unchanged)
-  void onCategoryChanged(int? value) async {
-    if (value == null) return;
-    setState(() {
-      selectedCategoryId = value;
-      selectedSubcategoryId = null;
-      selectedBrandId = null;
-      filteredSubcategories = [];
-      filteredBrands = [];
-    });
-    final subs = await ApiService.getSubcategories(value);
-    setState(
-      () => filteredSubcategories = List<Map<String, dynamic>>.from(subs),
-    );
-  }
+void onCategoryChanged(int value) async {
+  setState(() {
+    selectedCategoryId = value;
+    selectedSubcategoryId = null;
+    selectedBrandId = null;
+    filteredSubcategories = [];
+    filteredBrands = [];
+  });
+
+  final subs = await ApiService.getSubcategories(value);
+
+  if (!mounted) return;
+
+  setState(() {
+    filteredSubcategories = List<Map<String, dynamic>>.from(subs);
+  });
+}
+
 
   void onSubcategoryChanged(int? value) async {
     if (value == null) return;

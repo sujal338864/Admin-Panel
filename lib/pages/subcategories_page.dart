@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 
-
 class SubcategoriesPage extends StatefulWidget {
   const SubcategoriesPage({super.key});
 
@@ -22,57 +21,49 @@ class _SubcategoriesPageState extends State<SubcategoriesPage> {
     loadData();
   }
 
-  // ---------------------- HELPER FUNCTION ----------------------
-String getCategoryName(int? categoryId) {
-  if (categoryId == null) return 'Unknown';
-  final cat = categories.firstWhere(
-    (c) => c['CategoryID'] == categoryId,
-    orElse: () => {'Name': 'Unknown'},
-  );
-  return cat['Name'] ?? cat['CategoryName'] ?? 'Unknown';
-}
+  // ================= FETCH DATA =================
+  Future<void> loadData() async {
+    setState(() => isLoading = true);
+    try {
+     final rawCategories = await ApiService.getCategories();
+
+categories = rawCategories.map<Map<String, dynamic>>((c) => {
+  'CategoryID': c['CategoryID'] ?? c['category_id'],
+  'Name': c['Name'] ?? c['name'] ?? 'Unnamed Category',
+}).toList();
 
 
-  // ---------------------- FETCH DATA ----------------------
-Future<void> loadData() async {
-  setState(() => isLoading = true);
-  try {
-    categories = await ApiService.getCategories();
-    subcategories = [];
-
-    for (var cat in categories) {
-      final subs = await ApiService.getSubcategories(cat['CategoryID']);
-      subcategories.addAll(
-        List<Map<String, dynamic>>.from(subs.map((s) => {
-          'SubcategoryID': s['subcategoryId'] ?? s['SubcategoryID'],
-          'Name': s['subcategoryName'] ?? s['Name'] ?? 'Unnamed',
-          'CategoryID': s['categoryId'] ?? s['CategoryID'],
-          'CategoryName': s['categoryName'] ?? s['CategoryName'] ?? 'Unknown',
+      final subs = await ApiService.getSubcategories();
+      subcategories = List<Map<String, dynamic>>.from(
+        subs.map((s) => {
+          'SubcategoryID': s['SubcategoryID'],
+          'Name': s['Name'] ?? 'Unnamed',
+          'CategoryID': s['CategoryID'],
+          'CategoryName': s['CategoryName'] ?? 'Unknown',
           'CreatedAt': s['CreatedAt'] ?? 'N/A',
-        })),
+        }),
       );
+    } catch (e) {
+      categories = [];
+      subcategories = [];
+      print('❌ Failed to load subcategories: $e');
     }
-
-  } catch (e) {
-    categories = [];
-    subcategories = [];
-    print('❌ Failed to load data: $e');
+    setState(() => isLoading = false);
   }
-  setState(() => isLoading = false);
-}
 
-
-
+  // ================= DELETE =================
   Future<void> deleteSubcategory(int id) async {
     try {
       await ApiService.deleteSubcategory(id);
       loadData();
-    } catch (e) {
+    } catch (_) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to delete subcategory')));
+        const SnackBar(content: Text('Failed to delete subcategory')),
+      );
     }
   }
 
+  // ================= ADD / EDIT =================
   void _openAddEdit([Map<String, dynamic>? subcategory]) async {
     await showDialog(
       context: context,
@@ -84,80 +75,82 @@ Future<void> loadData() async {
     loadData();
   }
 
+  // ================= UI =================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Subcategories Management')),
       body: Padding(
         padding: const EdgeInsets.all(16),
-child: Column(
-  children: [
-    Row(
-      children: [
-        IconButton(
-          icon: const Icon(Icons.refresh, color: Colors.blue),
-          onPressed: loadData,
-          tooltip: 'Refresh',
-        ),
-        const SizedBox(width: 8),
-        ElevatedButton.icon(
-          onPressed: () => _openAddEdit(),
-          icon: const Icon(Icons.add),
-          label: const Text('New Subcategory'),
-        ),
-      ],
-    ),
-    const SizedBox(height: 16),
-    Expanded(
-      child: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : subcategories.isEmpty
-              ? const Center(child: Text('No subcategories found'))
-              : SingleChildScrollView(
-                  scrollDirection: Axis.vertical,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      columns: const [
-                        DataColumn(label: Text('Subcategory Name')),
-                        DataColumn(label: Text('Category')),
-                        DataColumn(label: Text('Added Date')),
-                        DataColumn(label: Text('Edit')),
-                        DataColumn(label: Text('Delete')),
-                      ],
-                      rows: subcategories.map((sub) {
-                        final id = sub['SubcategoryID'] ?? 0;
-                        return DataRow(cells: [
-                          DataCell(Text(sub['Name'] ?? 'Unnamed')),
-                          DataCell(Text(getCategoryName(sub['CategoryID']))),
-                          DataCell(Text(sub['CreatedAt'] ?? 'N/A')),
-                          DataCell(
-                            IconButton(
-                              icon: const Icon(Icons.edit, color: Colors.blue),
-                              onPressed: () => _openAddEdit(sub),
-                            ),
-                          ),
-                          DataCell(
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => deleteSubcategory(id),
-                            ),
-                          ),
-                        ]);
-                      }).toList(),
-                    ),
-                  ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.blue),
+                  onPressed: loadData,
+                  tooltip: 'Refresh',
                 ),
-    ),
-  ],
-),
-
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: () => _openAddEdit(),
+                  icon: const Icon(Icons.add),
+                  label: const Text('New Subcategory'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : subcategories.isEmpty
+                      ? const Center(child: Text('No subcategories found'))
+                      : SingleChildScrollView(
+                          scrollDirection: Axis.vertical,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              columns: const [
+                                DataColumn(label: Text('Subcategory Name')),
+                                DataColumn(label: Text('Category')),
+                                DataColumn(label: Text('Added Date')),
+                                DataColumn(label: Text('Edit')),
+                                DataColumn(label: Text('Delete')),
+                              ],
+                              rows: subcategories.map((sub) {
+                                final id = sub['SubcategoryID'];
+                                return DataRow(cells: [
+                                  DataCell(Text(sub['Name'])),
+                                  DataCell(Text(sub['CategoryName'])),
+                                  DataCell(Text(sub['CreatedAt'].toString())),
+                                  DataCell(
+                                    IconButton(
+                                      icon: const Icon(Icons.edit,
+                                          color: Colors.blue),
+                                      onPressed: () => _openAddEdit(sub),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    IconButton(
+                                      icon: const Icon(Icons.delete,
+                                          color: Colors.red),
+                                      onPressed: () => deleteSubcategory(id),
+                                    ),
+                                  ),
+                                ]);
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// ---------------- ADD / EDIT DIALOG ----------------
+// ================= ADD / EDIT DIALOG =================
 class AddEditSubcategoryDialog extends StatefulWidget {
   final Map<String, dynamic>? subcategory;
   final List<Map<String, dynamic>> categories;
@@ -183,34 +176,47 @@ class _AddEditSubcategoryDialogState extends State<AddEditSubcategoryDialog> {
     super.initState();
     _nameController =
         TextEditingController(text: widget.subcategory?['Name'] ?? '');
-    _selectedCategoryId = widget.subcategory?['CategoryID'];
+   _selectedCategoryId = widget.subcategory?['CategoryID'] ??
+    (widget.categories.isNotEmpty ? widget.categories.first['CategoryID'] : null);
+
   }
 
   Future<void> save() async {
     if (!_formKey.currentState!.validate() || _selectedCategoryId == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Please select a category')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a category')),
+      );
       return;
     }
 
     try {
       if (widget.subcategory == null) {
-        await ApiService.addSubcategory(_selectedCategoryId!, _nameController.text.trim());
+        await ApiService.addSubcategory(
+          _selectedCategoryId!,
+          _nameController.text.trim(),
+        );
       } else {
-        final id = widget.subcategory!['SubcategoryID'] ?? 0;
-        await ApiService.updateSubcategory(id, _selectedCategoryId!, _nameController.text.trim());
+        final id = widget.subcategory!['SubcategoryID'];
+        await ApiService.updateSubcategory(
+          id,
+          _selectedCategoryId!,
+          _nameController.text.trim(),
+        );
       }
-      Navigator.pop(context, true);
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Failed to save subcategory')));
+      Navigator.pop(context);
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to save subcategory')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.subcategory == null ? 'Add Subcategory' : 'Edit Subcategory'),
+      title: Text(widget.subcategory == null
+          ? 'Add Subcategory'
+          : 'Edit Subcategory'),
       content: Form(
         key: _formKey,
         child: Column(
@@ -218,32 +224,292 @@ class _AddEditSubcategoryDialogState extends State<AddEditSubcategoryDialog> {
           children: [
             TextFormField(
               controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Subcategory Name'),
-              validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+              decoration:
+                  const InputDecoration(labelText: 'Subcategory Name'),
+              validator: (v) =>
+                  v == null || v.isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<int>(
               value: _selectedCategoryId,
-              decoration: const InputDecoration(labelText: 'Select Category'),
+              decoration:
+                  const InputDecoration(labelText: 'Select Category'),
               items: widget.categories.map((cat) {
                 return DropdownMenuItem<int>(
                   value: cat['CategoryID'],
-                  child: Text(cat['Name']),
+                 child: Text(cat['Name'] ?? 'Unnamed'),
+
                 );
               }).toList(),
-              onChanged: (val) => setState(() => _selectedCategoryId = val),
-              validator: (v) => v == null ? 'Please select a category' : null,
+              onChanged: (val) =>
+                  setState(() => _selectedCategoryId = val),
+              validator: (v) =>
+                  v == null ? 'Please select a category' : null,
             ),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-        ElevatedButton(onPressed: save, child: Text(widget.subcategory == null ? 'Add' : 'Save')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: save,
+          child: Text(widget.subcategory == null ? 'Add' : 'Save'),
+        ),
       ],
     );
   }
 }
+
+
+// // ignore_for_file: avoid_print, use_build_context_synchronously
+
+// import 'package:flutter/material.dart';
+// import '../services/api_service.dart';
+
+
+// class SubcategoriesPage extends StatefulWidget {
+//   const SubcategoriesPage({super.key});
+
+//   @override
+//   State<SubcategoriesPage> createState() => _SubcategoriesPageState();
+// }
+
+// class _SubcategoriesPageState extends State<SubcategoriesPage> {
+//   List<Map<String, dynamic>> categories = [];
+//   List<Map<String, dynamic>> subcategories = [];
+//   bool isLoading = false;
+
+//   @override
+//   void initState() {
+//     super.initState();
+//     loadData();
+//   }
+
+//   // ---------------------- HELPER FUNCTION ----------------------
+// String getCategoryName(int? categoryId) {
+//   if (categoryId == null) return 'Unknown';
+//   final cat = categories.firstWhere(
+//     (c) => c['CategoryID'] == categoryId,
+//     orElse: () => {'Name': 'Unknown'},
+//   );
+//   return cat['Name'] ?? cat['CategoryName'] ?? 'Unknown';
+// }
+
+
+//   // ---------------------- FETCH DATA ----------------------
+// Future<void> loadData() async {
+//   setState(() => isLoading = true);
+//   try {
+//     categories = await ApiService.getCategories();
+//     subcategories = [];
+
+//     for (var cat in categories) {
+//       final subs = await ApiService.getSubcategories(cat['CategoryID']);
+//       subcategories.addAll(
+//         List<Map<String, dynamic>>.from(subs.map((s) => {
+//           'SubcategoryID': s['subcategoryId'] ?? s['SubcategoryID'],
+//           'Name': s['subcategoryName'] ?? s['Name'] ?? 'Unnamed',
+//           'CategoryID': s['categoryId'] ?? s['CategoryID'],
+//           'CategoryName': s['categoryName'] ?? s['CategoryName'] ?? 'Unknown',
+//           'CreatedAt': s['CreatedAt'] ?? 'N/A',
+//         })),
+//       );
+//     }
+
+//   } catch (e) {
+//     categories = [];
+//     subcategories = [];
+//     print('❌ Failed to load data: $e');
+//   }
+//   setState(() => isLoading = false);
+// }
+
+
+
+//   Future<void> deleteSubcategory(int id) async {
+//     try {
+//       await ApiService.deleteSubcategory(id);
+//       loadData();
+//     } catch (e) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//           const SnackBar(content: Text('Failed to delete subcategory')));
+//     }
+//   }
+
+//   void _openAddEdit([Map<String, dynamic>? subcategory]) async {
+//     await showDialog(
+//       context: context,
+//       builder: (_) => AddEditSubcategoryDialog(
+//         subcategory: subcategory,
+//         categories: categories,
+//       ),
+//     );
+//     loadData();
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       appBar: AppBar(title: const Text('Subcategories Management')),
+//       body: Padding(
+//         padding: const EdgeInsets.all(16),
+// child: Column(
+//   children: [
+//     Row(
+//       children: [
+//         IconButton(
+//           icon: const Icon(Icons.refresh, color: Colors.blue),
+//           onPressed: loadData,
+//           tooltip: 'Refresh',
+//         ),
+//         const SizedBox(width: 8),
+//         ElevatedButton.icon(
+//           onPressed: () => _openAddEdit(),
+//           icon: const Icon(Icons.add),
+//           label: const Text('New Subcategory'),
+//         ),
+//       ],
+//     ),
+//     const SizedBox(height: 16),
+//     Expanded(
+//       child: isLoading
+//           ? const Center(child: CircularProgressIndicator())
+//           : subcategories.isEmpty
+//               ? const Center(child: Text('No subcategories found'))
+//               : SingleChildScrollView(
+//                   scrollDirection: Axis.vertical,
+//                   child: SingleChildScrollView(
+//                     scrollDirection: Axis.horizontal,
+//                     child: DataTable(
+//                       columns: const [
+//                         DataColumn(label: Text('Subcategory Name')),
+//                         DataColumn(label: Text('Category')),
+//                         DataColumn(label: Text('Added Date')),
+//                         DataColumn(label: Text('Edit')),
+//                         DataColumn(label: Text('Delete')),
+//                       ],
+//                       rows: subcategories.map((sub) {
+//                         final id = sub['SubcategoryID'] ?? 0;
+//                         return DataRow(cells: [
+//                           DataCell(Text(sub['Name'] ?? 'Unnamed')),
+//                           DataCell(Text(getCategoryName(sub['CategoryID']))),
+//                           DataCell(Text(sub['CreatedAt'] ?? 'N/A')),
+//                           DataCell(
+//                             IconButton(
+//                               icon: const Icon(Icons.edit, color: Colors.blue),
+//                               onPressed: () => _openAddEdit(sub),
+//                             ),
+//                           ),
+//                           DataCell(
+//                             IconButton(
+//                               icon: const Icon(Icons.delete, color: Colors.red),
+//                               onPressed: () => deleteSubcategory(id),
+//                             ),
+//                           ),
+//                         ]);
+//                       }).toList(),
+//                     ),
+//                   ),
+//                 ),
+//     ),
+//   ],
+// ),
+
+//       ),
+//     );
+//   }
+// }
+
+// // ---------------- ADD / EDIT DIALOG ----------------
+// class AddEditSubcategoryDialog extends StatefulWidget {
+//   final Map<String, dynamic>? subcategory;
+//   final List<Map<String, dynamic>> categories;
+
+//   const AddEditSubcategoryDialog({
+//     super.key,
+//     this.subcategory,
+//     required this.categories,
+//   });
+
+//   @override
+//   State<AddEditSubcategoryDialog> createState() =>
+//       _AddEditSubcategoryDialogState();
+// }
+
+// class _AddEditSubcategoryDialogState extends State<AddEditSubcategoryDialog> {
+//   final _formKey = GlobalKey<FormState>();
+//   late TextEditingController _nameController;
+//   int? _selectedCategoryId;
+
+//   @override
+//   void initState() {
+//     super.initState();
+//     _nameController =
+//         TextEditingController(text: widget.subcategory?['Name'] ?? '');
+//     _selectedCategoryId = widget.subcategory?['CategoryID'];
+//   }
+
+//   Future<void> save() async {
+//     if (!_formKey.currentState!.validate() || _selectedCategoryId == null) {
+//       ScaffoldMessenger.of(context)
+//           .showSnackBar(const SnackBar(content: Text('Please select a category')));
+//       return;
+//     }
+
+//     try {
+//       if (widget.subcategory == null) {
+//         await ApiService.addSubcategory(_selectedCategoryId!, _nameController.text.trim());
+//       } else {
+//         final id = widget.subcategory!['SubcategoryID'] ?? 0;
+//         await ApiService.updateSubcategory(id, _selectedCategoryId!, _nameController.text.trim());
+//       }
+//       Navigator.pop(context, true);
+//     } catch (e) {
+//       ScaffoldMessenger.of(context)
+//           .showSnackBar(const SnackBar(content: Text('Failed to save subcategory')));
+//     }
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return AlertDialog(
+//       title: Text(widget.subcategory == null ? 'Add Subcategory' : 'Edit Subcategory'),
+//       content: Form(
+//         key: _formKey,
+//         child: Column(
+//           mainAxisSize: MainAxisSize.min,
+//           children: [
+//             TextFormField(
+//               controller: _nameController,
+//               decoration: const InputDecoration(labelText: 'Subcategory Name'),
+//               validator: (v) => v == null || v.isEmpty ? 'Required' : null,
+//             ),
+//             const SizedBox(height: 16),
+//             DropdownButtonFormField<int>(
+//               value: _selectedCategoryId,
+//               decoration: const InputDecoration(labelText: 'Select Category'),
+//               items: widget.categories.map((cat) {
+//                 return DropdownMenuItem<int>(
+//                   value: cat['CategoryID'],
+//                   child: Text(cat['Name']),
+//                 );
+//               }).toList(),
+//               onChanged: (val) => setState(() => _selectedCategoryId = val),
+//               validator: (v) => v == null ? 'Please select a category' : null,
+//             ),
+//           ],
+//         ),
+//       ),
+//       actions: [
+//         TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+//         ElevatedButton(onPressed: save, child: Text(widget.subcategory == null ? 'Add' : 'Save')),
+//       ],
+//     );
+//   }
+// }
 
 
 

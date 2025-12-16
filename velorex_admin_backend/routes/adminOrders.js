@@ -1,199 +1,173 @@
 const express = require("express");
 const router = express.Router();
-const db = require("../models/db_postgres"); // PostgreSQL only
-
-console.log("🟣 Using PostgreSQL for Admin Orders");
+const pool = require("../models/db");
+console.log("🔥 ORDERS API HIT");
 
 /* =====================================================
    🟣 ADMIN: GET ALL ORDERS (Flattened Order Items)
-===================================================== */
+   ===================================================== */
 router.get("/", async (req, res) => {
   try {
-    const q = `
+    const { rows } = await pool.query(`
       SELECT 
-        o.orderid,
-        o.userid,
-        u.name AS username,
-        u.email AS useremail,
-        o.totalamount,
-        o.paymentmethod,
-        o.shippingaddress,
-        o.orderstatus,
-        o.createdat,
-        oi.orderitemid,
-        oi.productid,
+        o.order_id,
+        o.user_id,
+        u.name AS user_name,
+        u.email AS user_email,
+        o.total_amount,
+        o.payment_method,
+        o.shipping_address,
+        o.order_status,
+        o.created_at,
+        oi.order_item_id,
+        oi.product_id,
         oi.quantity,
-        oi.price AS itemprice,
-        oi.orderitemstatus,
-        oi.itemtrackingurl,
-        p.name AS productname,
+        oi.price AS item_price,
+        oi.order_item_status,
+        oi.item_tracking_url,
+        p.name AS product_name,
         (
-          SELECT string_agg(pi.imageurl, ',')
-          FROM productimages pi
-          WHERE pi.productid = p.productid
-        ) AS imageurls
+          SELECT STRING_AGG(pi.image_url, ',')
+          FROM product_images pi 
+          WHERE pi.product_id = p.product_id
+        ) AS image_urls
       FROM orders o
-      INNER JOIN orderitems oi ON o.orderid = oi.orderid
-      LEFT JOIN products p ON oi.productid = p.productid
-      LEFT JOIN users u ON o.userid = u.userid
-      ORDER BY o.createdat DESC;
-    `;
+      INNER JOIN order_items oi ON o.order_id = oi.order_id
+      LEFT JOIN products p ON oi.product_id = p.product_id
+      LEFT JOIN users u ON o.user_id = u.user_id
+      ORDER BY o.created_at DESC
+    `);
 
-    const result = await db.query(q);
-
-    const orders = result.rows.map((row) => ({
-      orderId: row.orderid,
-      orderItemId: row.orderitemid,
-      userId: row.userid,
-      userName: row.username || "Unknown",
-      userEmail: row.useremail || "N/A",
-      totalAmount: Number(row.totalamount),
-      paymentMethod: row.paymentmethod,
-      shippingAddress: row.shippingaddress,
-      orderStatus: row.orderstatus,
-      createdAt: row.createdat,
-
-      productId: row.productid,
-      productName: row.productname,
+    const orders = rows.map(row => ({
+      orderId: Number(row.order_id),
+      orderItemId: row.order_item_id,
+      userId: row.user_id,
+      userName: row.user_name || "Unknown",
+      userEmail: row.user_email || "N/A",
+      totalAmount: Number(row.total_amount),
+      paymentMethod: row.payment_method,
+      shippingAddress: row.shipping_address,
+      orderStatus: row.order_status,
+      createdAt: row.created_at,
+      productId: row.product_id,
+      productName: row.product_name,
       quantity: row.quantity,
-      price: Number(row.itemprice),
-
-      orderItemStatus: row.orderitemstatus || "Pending",
-      trackingUrl: row.itemtrackingurl || null,
-
-      imageUrls: row.imageurls
-        ? row.imageurls.split(",").map((u) => u.trim())
+      price: Number(row.item_price),
+      orderItemStatus: row.order_item_status?.trim() || "Pending",
+      trackingUrl: row.item_tracking_url,
+      imageUrls: row.image_urls
+        ? row.image_urls.split(",").map(u => u.trim())
         : ["https://via.placeholder.com/300?text=No+Image"],
     }));
 
     res.json({ success: true, data: orders });
   } catch (error) {
-    console.error("❌ Admin fetch all orders error:", error);
+    console.error("❌ Admin fetch orders error:", error);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
 /* =====================================================
    🟢 ADMIN: GET SINGLE ORDER DETAILS
-===================================================== */
+   ===================================================== */
 router.get("/:orderId", async (req, res) => {
-  try {
-    const { orderId } = req.params;
+  const { orderId } = req.params;
 
-    // ----- ORDER HEADER -----
-    const orderResult = await db.query(
+  try {
+    const orderRes = await pool.query(
       `
       SELECT 
-        o.orderid,
-        o.userid,
-        u.name AS username,
-        u.email AS useremail,
-        o.totalamount,
-        o.paymentmethod,
-        o.orderstatus,
-        o.createdat,
-        o.shippingaddress
+        o.order_id,
+        o.user_id,
+        u.name AS user_name,
+        u.email AS user_email,
+        o.total_amount,
+        o.payment_method,
+        o.order_status,
+        o.created_at,
+        o.shipping_address
       FROM orders o
-      LEFT JOIN users u ON o.userid = u.userid
-      WHERE o.orderid = $1;
+      LEFT JOIN users u ON o.user_id = u.user_id
+      WHERE o.order_id = $1
       `,
       [orderId]
     );
 
-    if (orderResult.rowCount === 0) {
+    if (orderRes.rowCount === 0) {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    const order = orderResult.rows[0];
-
-    // ----- ITEMS -----
-    const itemsResult = await db.query(
+    const itemsRes = await pool.query(
       `
       SELECT 
-        oi.orderitemid,
-        oi.productid,
-        p.name AS productname,
+        oi.order_item_id,
+        oi.product_id,
+        p.name AS product_name,
         oi.quantity,
         oi.price,
-        COALESCE(oi.orderitemstatus, 'Pending') AS orderitemstatus,
-        COALESCE(oi.itemtrackingurl, '') AS trackingurl,
+        COALESCE(oi.order_item_status, 'Pending') AS order_item_status,
+        COALESCE(oi.item_tracking_url, '') AS tracking_url,
         (
-          SELECT string_agg(pi.imageurl, ',')
-          FROM productimages pi
-          WHERE pi.productid = p.productid
-        ) AS imageurls
-      FROM orderitems oi
-      LEFT JOIN products p ON oi.productid = p.productid
-      WHERE oi.orderid = $1;
+          SELECT STRING_AGG(pi.image_url, ',')
+          FROM product_images pi 
+          WHERE pi.product_id = p.product_id
+        ) AS image_urls
+      FROM order_items oi
+      LEFT JOIN products p ON oi.product_id = p.product_id
+      WHERE oi.order_id = $1
       `,
       [orderId]
     );
 
-    const items = itemsResult.rows.map((item) => ({
-      orderItemId: item.orderitemid,
-      productId: item.productid,
-      productName: item.productname,
+    const order = orderRes.rows[0];
+    order.items = itemsRes.rows.map(item => ({
+      orderItemId: item.order_item_id,
+      productId: item.product_id,
+      productName: item.product_name,
       quantity: item.quantity,
       price: Number(item.price),
-      orderItemStatus: item.orderitemstatus,
-      trackingUrl: item.trackingurl,
-      imageUrls: item.imageurls
-        ? item.imageurls.split(",").map((u) => u.trim())
+      orderItemStatus: item.order_item_status,
+      trackingUrl: item.tracking_url,
+      imageUrls: item.image_urls
+        ? item.image_urls.split(",").map(u => u.trim())
         : ["https://via.placeholder.com/300?text=No+Image"],
     }));
 
-    res.json({
-      success: true,
-      data: {
-        orderId: order.orderid,
-        userId: order.userid,
-        userName: order.username,
-        userEmail: order.useremail,
-        totalAmount: Number(order.totalamount),
-        paymentMethod: order.paymentmethod,
-        orderStatus: order.orderstatus,
-        createdAt: order.createdat,
-        shippingAddress: order.shippingaddress,
-        items,
-      },
-    });
+    res.json({ success: true, data: order });
   } catch (err) {
-    console.error("❌ Error fetching order:", err);
+    console.error("❌ Fetch order error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
 /* =====================================================
-   🟠 UPDATE ORDER ITEM STATUS & TRACKING URL
-===================================================== */
+   🟠 ADMIN: UPDATE SINGLE ORDER ITEM
+   ===================================================== */
 router.put("/item/:orderItemId/update", async (req, res) => {
+  const { orderItemId } = req.params;
+  const { status, trackingUrl } = req.body;
+
   try {
-    const { orderItemId } = req.params;
-    const { status, trackingUrl } = req.body;
-
-    const q = `
-      UPDATE orderitems
+    const { rows } = await pool.query(
+      `
+      UPDATE order_items
       SET 
-        orderitemstatus = COALESCE($2, orderitemstatus),
-        itemtrackingurl = COALESCE($3, itemtrackingurl)
-      WHERE orderitemid = $1
-      RETURNING *;
-    `;
+        order_item_status = COALESCE($1, order_item_status),
+        item_tracking_url = COALESCE($2, item_tracking_url)
+      WHERE order_item_id = $3
+      RETURNING *
+      `,
+      [status || null, trackingUrl || null, orderItemId]
+    );
 
-    const result = await db.query(q, [
-      orderItemId,
-      status || null,
-      trackingUrl || null,
-    ]);
-
-    if (result.rowCount === 0) {
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, message: "Order item not found" });
     }
 
     res.json({
       success: true,
       message: "Order item updated successfully",
-      updated: result.rows[0],
+      updated: rows[0],
     });
   } catch (error) {
     console.error("❌ Update order item error:", error);
@@ -202,31 +176,31 @@ router.put("/item/:orderItemId/update", async (req, res) => {
 });
 
 /* =====================================================
-   🟢 UPDATE MAIN ORDER STATUS
-===================================================== */
+   🟢 ADMIN: UPDATE MAIN ORDER STATUS
+   ===================================================== */
 router.put("/:orderId/status", async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const { status } = req.body;
+  const { orderId } = req.params;
+  const { status } = req.body;
 
-    const result = await db.query(
+  try {
+    const { rows } = await pool.query(
       `
       UPDATE orders
-      SET orderstatus = $2
-      WHERE orderid = $1
-      RETURNING *;
+      SET order_status = $1
+      WHERE order_id = $2
+      RETURNING *
       `,
-      [orderId, status]
+      [status, orderId]
     );
 
-    if (result.rowCount === 0) {
+    if (rows.length === 0) {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
     res.json({
       success: true,
       message: "Order status updated successfully",
-      updated: result.rows[0],
+      updated: rows[0],
     });
   } catch (error) {
     console.error("❌ Order status update error:", error);
@@ -235,38 +209,19 @@ router.put("/:orderId/status", async (req, res) => {
 });
 
 /* =====================================================
-   🔴 DELETE ORDER + ITEMS (HARD DELETE)
-===================================================== */
+   🔴 DELETE ORDER & ITEMS
+   ===================================================== */
 router.delete("/:orderId", async (req, res) => {
+  const { orderId } = req.params;
+
   try {
-    const { orderId } = req.params;
+    await pool.query("DELETE FROM order_items WHERE order_id = $1", [orderId]);
+    await pool.query("DELETE FROM orders WHERE order_id = $1", [orderId]);
 
-    const client = await db.pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      await client.query("DELETE FROM orderitems WHERE orderid = $1;", [orderId]);
-      const result = await client.query(
-        "DELETE FROM orders WHERE orderid = $1 RETURNING orderid;",
-        [orderId]
-      );
-
-      await client.query("COMMIT");
-
-      if (result.rowCount === 0) {
-        return res.status(404).json({ success: false, message: "Order not found" });
-      }
-
-      res.json({
-        success: true,
-        message: `Order #${orderId} deleted successfully`,
-      });
-    } catch (e) {
-      await client.query("ROLLBACK");
-      throw e;
-    } finally {
-      client.release();
-    }
+    res.json({
+      success: true,
+      message: `Order #${orderId} deleted successfully`,
+    });
   } catch (err) {
     console.error("❌ Delete order error:", err);
     res.status(500).json({ success: false, message: "Failed to delete order" });
@@ -274,6 +229,7 @@ router.delete("/:orderId", async (req, res) => {
 });
 
 module.exports = router;
+
 
 
 // const express = require("express");
@@ -537,3 +493,283 @@ module.exports = router;
 // });
 
 // module.exports = router;
+
+
+
+// const express = require("express");
+// const router = express.Router();
+// const db = require("../models/db_postgres"); // PostgreSQL only
+
+// console.log("🟣 Using PostgreSQL for Admin Orders");
+
+// /* =====================================================
+//    🟣 ADMIN: GET ALL ORDERS (Flattened Order Items)
+// ===================================================== */
+// router.get("/", async (req, res) => {
+//   try {
+//     const q = `
+//       SELECT 
+//         o.orderid,
+//         o.userid,
+//         u.name AS username,
+//         u.email AS useremail,
+//         o.totalamount,
+//         o.paymentmethod,
+//         o.shippingaddress,
+//         o.orderstatus,
+//         o.createdat,
+//         oi.orderitemid,
+//         oi.productid,
+//         oi.quantity,
+//         oi.price AS itemprice,
+//         oi.orderitemstatus,
+//         oi.itemtrackingurl,
+//         p.name AS productname,
+//         (
+//           SELECT string_agg(pi.imageurl, ',')
+//           FROM productimages pi
+//           WHERE pi.productid = p.productid
+//         ) AS imageurls
+//       FROM orders o
+//       INNER JOIN orderitems oi ON o.orderid = oi.orderid
+//       LEFT JOIN products p ON oi.productid = p.productid
+//       LEFT JOIN users u ON o.userid = u.userid
+//       ORDER BY o.createdat DESC;
+//     `;
+
+//     const result = await db.query(q);
+
+//     const orders = result.rows.map((row) => ({
+//       orderId: row.orderid,
+//       orderItemId: row.orderitemid,
+//       userId: row.userid,
+//       userName: row.username || "Unknown",
+//       userEmail: row.useremail || "N/A",
+//       totalAmount: Number(row.totalamount),
+//       paymentMethod: row.paymentmethod,
+//       shippingAddress: row.shippingaddress,
+//       orderStatus: row.orderstatus,
+//       createdAt: row.createdat,
+
+//       productId: row.productid,
+//       productName: row.productname,
+//       quantity: row.quantity,
+//       price: Number(row.itemprice),
+
+//       orderItemStatus: row.orderitemstatus || "Pending",
+//       trackingUrl: row.itemtrackingurl || null,
+
+//       imageUrls: row.imageurls
+//         ? row.imageurls.split(",").map((u) => u.trim())
+//         : ["https://via.placeholder.com/300?text=No+Image"],
+//     }));
+
+//     res.json({ success: true, data: orders });
+//   } catch (error) {
+//     console.error("❌ Admin fetch all orders error:", error);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
+
+// /* =====================================================
+//    🟢 ADMIN: GET SINGLE ORDER DETAILS
+// ===================================================== */
+// router.get("/:orderId", async (req, res) => {
+//   try {
+//     const { orderId } = req.params;
+
+//     // ----- ORDER HEADER -----
+//     const orderResult = await db.query(
+//       `
+//       SELECT 
+//         o.orderid,
+//         o.userid,
+//         u.name AS username,
+//         u.email AS useremail,
+//         o.totalamount,
+//         o.paymentmethod,
+//         o.orderstatus,
+//         o.createdat,
+//         o.shippingaddress
+//       FROM orders o
+//       LEFT JOIN users u ON o.userid = u.userid
+//       WHERE o.orderid = $1;
+//       `,
+//       [orderId]
+//     );
+
+//     if (orderResult.rowCount === 0) {
+//       return res.status(404).json({ success: false, message: "Order not found" });
+//     }
+
+//     const order = orderResult.rows[0];
+
+//     // ----- ITEMS -----
+//     const itemsResult = await db.query(
+//       `
+//       SELECT 
+//         oi.orderitemid,
+//         oi.productid,
+//         p.name AS productname,
+//         oi.quantity,
+//         oi.price,
+//         COALESCE(oi.orderitemstatus, 'Pending') AS orderitemstatus,
+//         COALESCE(oi.itemtrackingurl, '') AS trackingurl,
+//         (
+//           SELECT string_agg(pi.imageurl, ',')
+//           FROM productimages pi
+//           WHERE pi.productid = p.productid
+//         ) AS imageurls
+//       FROM orderitems oi
+//       LEFT JOIN products p ON oi.productid = p.productid
+//       WHERE oi.orderid = $1;
+//       `,
+//       [orderId]
+//     );
+
+//     const items = itemsResult.rows.map((item) => ({
+//       orderItemId: item.orderitemid,
+//       productId: item.productid,
+//       productName: item.productname,
+//       quantity: item.quantity,
+//       price: Number(item.price),
+//       orderItemStatus: item.orderitemstatus,
+//       trackingUrl: item.trackingurl,
+//       imageUrls: item.imageurls
+//         ? item.imageurls.split(",").map((u) => u.trim())
+//         : ["https://via.placeholder.com/300?text=No+Image"],
+//     }));
+
+//     res.json({
+//       success: true,
+//       data: {
+//         orderId: order.orderid,
+//         userId: order.userid,
+//         userName: order.username,
+//         userEmail: order.useremail,
+//         totalAmount: Number(order.totalamount),
+//         paymentMethod: order.paymentmethod,
+//         orderStatus: order.orderstatus,
+//         createdAt: order.createdat,
+//         shippingAddress: order.shippingaddress,
+//         items,
+//       },
+//     });
+//   } catch (err) {
+//     console.error("❌ Error fetching order:", err);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
+
+// /* =====================================================
+//    🟠 UPDATE ORDER ITEM STATUS & TRACKING URL
+// ===================================================== */
+// router.put("/item/:orderItemId/update", async (req, res) => {
+//   try {
+//     const { orderItemId } = req.params;
+//     const { status, trackingUrl } = req.body;
+
+//     const q = `
+//       UPDATE orderitems
+//       SET 
+//         orderitemstatus = COALESCE($2, orderitemstatus),
+//         itemtrackingurl = COALESCE($3, itemtrackingurl)
+//       WHERE orderitemid = $1
+//       RETURNING *;
+//     `;
+
+//     const result = await db.query(q, [
+//       orderItemId,
+//       status || null,
+//       trackingUrl || null,
+//     ]);
+
+//     if (result.rowCount === 0) {
+//       return res.status(404).json({ success: false, message: "Order item not found" });
+//     }
+
+//     res.json({
+//       success: true,
+//       message: "Order item updated successfully",
+//       updated: result.rows[0],
+//     });
+//   } catch (error) {
+//     console.error("❌ Update order item error:", error);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
+
+// /* =====================================================
+//    🟢 UPDATE MAIN ORDER STATUS
+// ===================================================== */
+// router.put("/:orderId/status", async (req, res) => {
+//   try {
+//     const { orderId } = req.params;
+//     const { status } = req.body;
+
+//     const result = await db.query(
+//       `
+//       UPDATE orders
+//       SET orderstatus = $2
+//       WHERE orderid = $1
+//       RETURNING *;
+//       `,
+//       [orderId, status]
+//     );
+
+//     if (result.rowCount === 0) {
+//       return res.status(404).json({ success: false, message: "Order not found" });
+//     }
+
+//     res.json({
+//       success: true,
+//       message: "Order status updated successfully",
+//       updated: result.rows[0],
+//     });
+//   } catch (error) {
+//     console.error("❌ Order status update error:", error);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
+
+// /* =====================================================
+//    🔴 DELETE ORDER + ITEMS (HARD DELETE)
+// ===================================================== */
+// router.delete("/:orderId", async (req, res) => {
+//   try {
+//     const { orderId } = req.params;
+
+//     const client = await db.pool.connect();
+//     try {
+//       await client.query("BEGIN");
+
+//       await client.query("DELETE FROM orderitems WHERE orderid = $1;", [orderId]);
+//       const result = await client.query(
+//         "DELETE FROM orders WHERE orderid = $1 RETURNING orderid;",
+//         [orderId]
+//       );
+
+//       await client.query("COMMIT");
+
+//       if (result.rowCount === 0) {
+//         return res.status(404).json({ success: false, message: "Order not found" });
+//       }
+
+//       res.json({
+//         success: true,
+//         message: `Order #${orderId} deleted successfully`,
+//       });
+//     } catch (e) {
+//       await client.query("ROLLBACK");
+//       throw e;
+//     } finally {
+//       client.release();
+//     }
+//   } catch (err) {
+//     console.error("❌ Delete order error:", err);
+//     res.status(500).json({ success: false, message: "Failed to delete order" });
+//   }
+// });
+
+// module.exports = router;
+

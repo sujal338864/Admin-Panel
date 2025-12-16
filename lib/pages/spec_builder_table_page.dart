@@ -76,7 +76,7 @@ class _SpecBuilderSplitPageState extends State<SpecBuilderSplitPage> {
 
               final ok = isEdit
                   ? await ApiService.updateSpecSection(
-                      sectionId: section!.sectionId,
+                      sectionId: section.sectionId,
                       name: name,
                       sortOrder: sortOrder,
                     )
@@ -178,7 +178,7 @@ class _SpecBuilderSplitPageState extends State<SpecBuilderSplitPage> {
 
               final ok = isEdit
                   ? await ApiService.updateSpecField(
-                      fieldId: field!.fieldId,
+                      fieldId: field.fieldId,
                       sectionId: section.sectionId,
                       name: name,
                       inputType: inputType,

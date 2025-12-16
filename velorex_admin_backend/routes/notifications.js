@@ -1,72 +1,87 @@
+// routes/notifications.js
 const express = require("express");
 const router = express.Router();
-const db = require("../models/db_postgres");
+const pool = require("../models/db");
 
-/* ==========================================================
+/* ===============================
    CREATE Notification
-========================================================== */
+   =============================== */
 router.post("/", async (req, res) => {
   try {
     const { title, message, imageUrl } = req.body;
 
     if (!title || !message) {
-      return res.status(400).json({
-        error: "Title and message are required",
-      });
+      return res.status(400).json({ error: "Title and message are required" });
     }
 
-    await db.query(
-      `INSERT INTO notifications (title, description, imageurl, senddate, isactive, createdat)
-       VALUES ($1, $2, $3, NOW(), TRUE, NOW())`,
-      [title, message, imageUrl || ""]
+    await pool.query(
+      `
+      INSERT INTO notifications
+        (title, description, image_url, send_date, is_active, created_at)
+      VALUES
+        ($1, $2, $3, NOW(), true, NOW())
+      `,
+      [title, message, imageUrl || null]
     );
 
-    res.status(201).json({
-      message: "Notification created successfully",
-    });
+    res.status(201).json({ message: "✅ Notification created successfully" });
   } catch (err) {
     console.error("❌ Error creating notification:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-/* ==========================================================
-   GET All Active Notifications
-========================================================== */
-router.get("/", async (_, res) => {
+/* ===============================
+   GET all active notifications
+   =============================== */
+router.get("/", async (req, res) => {
   try {
-    const result = await db.query(
-      `SELECT notificationid, title, description, imageurl, createdat
-       FROM notifications
-       WHERE isactive = TRUE
-       ORDER BY createdat DESC`
-    );
+    const result = await pool.query(`
+      SELECT
+        notification_id AS "NotificationID",
+        title           AS "Title",
+        description     AS "Description",
+        image_url       AS "ImageUrl",
+        send_date       AS "SendDate",
+        is_active       AS "IsActive",
+        created_at      AS "CreatedAt",
+        user_id         AS "UserID"
+      FROM notifications
+      ORDER BY notification_id DESC
+    `);
 
-    res.json(result.rows);
-  } catch (err) {
-    console.error("❌ Error fetching notifications:", err);
-    res.status(500).json({ error: err.message });
+    res.status(200).json(result.rows);
+  } catch (error) {
+    console.error("❌ Error fetching notifications:", error);
+    res.status(500).json({ error: "Failed to fetch notifications" });
   }
 });
 
-/* ==========================================================
-   DEACTIVATE Notification
-========================================================== */
+/* ===============================
+   DELETE (Deactivate Notification)
+   =============================== */
 router.delete("/:id", async (req, res) => {
   try {
-    await db.query(
-      `UPDATE notifications SET isactive = FALSE WHERE notificationid = $1`,
-      [req.params.id]
+    const { id } = req.params;
+
+    await pool.query(
+      `
+      UPDATE notifications
+      SET is_active = false
+      WHERE notification_id = $1
+      `,
+      [id]
     );
 
-    res.json({ message: "Notification deactivated successfully" });
+    res.json({ message: "🗑 Notification deactivated successfully" });
   } catch (err) {
-    console.error("❌ Error deactivating notification:", err);
+    console.error("❌ Error deleting notification:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
 module.exports = router;
+
 
 
 
@@ -147,3 +162,77 @@ module.exports = router;
 // });
 
 // module.exports = router;
+
+
+
+// const express = require("express");
+// const router = express.Router();
+// const db = require("../models/db_postgres");
+
+// /* ==========================================================
+//    CREATE Notification
+// ========================================================== */
+// router.post("/", async (req, res) => {
+//   try {
+//     const { title, message, imageUrl } = req.body;
+
+//     if (!title || !message) {
+//       return res.status(400).json({
+//         error: "Title and message are required",
+//       });
+//     }
+
+//     await db.query(
+//       `INSERT INTO notifications (title, description, imageurl, senddate, isactive, createdat)
+//        VALUES ($1, $2, $3, NOW(), TRUE, NOW())`,
+//       [title, message, imageUrl || ""]
+//     );
+
+//     res.status(201).json({
+//       message: "Notification created successfully",
+//     });
+//   } catch (err) {
+//     console.error("❌ Error creating notification:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
+
+// /* ==========================================================
+//    GET All Active Notifications
+// ========================================================== */
+// router.get("/", async (_, res) => {
+//   try {
+//     const result = await db.query(
+//       `SELECT notificationid, title, description, imageurl, createdat
+//        FROM notifications
+//        WHERE isactive = TRUE
+//        ORDER BY createdat DESC`
+//     );
+
+//     res.json(result.rows);
+//   } catch (err) {
+//     console.error("❌ Error fetching notifications:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
+
+// /* ==========================================================
+//    DEACTIVATE Notification
+// ========================================================== */
+// router.delete("/:id", async (req, res) => {
+//   try {
+//     await db.query(
+//       `UPDATE notifications SET isactive = FALSE WHERE notificationid = $1`,
+//       [req.params.id]
+//     );
+
+//     res.json({ message: "Notification deactivated successfully" });
+//   } catch (err) {
+//     console.error("❌ Error deactivating notification:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
+
+// module.exports = router;
+
+

@@ -33,16 +33,16 @@ categories = rawCategories.map<Map<String, dynamic>>((c) => {
 }).toList();
 
 
-      final subs = await ApiService.getSubcategories();
-      subcategories = List<Map<String, dynamic>>.from(
-        subs.map((s) => {
-          'SubcategoryID': s['SubcategoryID'],
-          'Name': s['Name'] ?? 'Unnamed',
-          'CategoryID': s['CategoryID'],
-          'CategoryName': s['CategoryName'] ?? 'Unknown',
-          'CreatedAt': s['CreatedAt'] ?? 'N/A',
-        }),
-      );
+     final subs = await ApiService.getSubcategories();
+
+subcategories = subs.map<Map<String, dynamic>>((s) => {
+  'SubcategoryID': s['subcategory_id'],
+  'Name': s['name'] ?? 'Unnamed',
+  'CategoryID': s['category_id'],
+  'CategoryName': s['category_name'] ?? 'Unknown',
+  'CreatedAt': s['created_at'],
+}).toList();
+
     } catch (e) {
       categories = [];
       subcategories = [];
@@ -122,7 +122,17 @@ categories = rawCategories.map<Map<String, dynamic>>((c) => {
                                 return DataRow(cells: [
                                   DataCell(Text(sub['Name'])),
                                   DataCell(Text(sub['CategoryName'])),
-                                  DataCell(Text(sub['CreatedAt'].toString())),
+                                DataCell(
+  Text(
+    sub['CreatedAt'] != null
+        ? DateTime.parse(sub['CreatedAt'])
+            .toLocal()
+            .toString()
+            .split(' ')[0]
+        : 'N/A',
+  ),
+),
+
                                   DataCell(
                                     IconButton(
                                       icon: const Icon(Icons.edit,
@@ -262,7 +272,6 @@ class _AddEditSubcategoryDialogState extends State<AddEditSubcategoryDialog> {
     );
   }
 }
-
 
 // // ignore_for_file: avoid_print, use_build_context_synchronously
 

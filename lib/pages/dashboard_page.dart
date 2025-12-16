@@ -629,8 +629,9 @@ Widget _buildProductTable() {
                     ),
                   ),
 
-                  DataCell(Text(product['categoryName'] ?? '')),
-                  DataCell(Text(product['subcategoryName'] ?? '')),
+                DataCell(Text(product['category_name'] ?? '—')),
+DataCell(Text(product['subcategory_name'] ?? '—')),
+
                   DataCell(Text(product['price']?.toString() ?? '')),
                   DataCell(Text(
                     product['stock']?.toString() ?? '0',
@@ -646,13 +647,14 @@ Widget _buildProductTable() {
                         icon: const Icon(Icons.edit, color: Colors.blue),
                         onPressed: () async {
                           await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => AddEditProductPage(
-                                productId: product['id'],
-                              ),
-                            ),
-                          );
+  context,
+  MaterialPageRoute(
+    builder: (_) => AddEditProductPage(
+      productId: product['ProductID'], // ✅ REQUIRED
+    ),
+  ),
+);
+
                           fetchAllData();
                         },
                       ),

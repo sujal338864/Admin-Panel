@@ -71,6 +71,18 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
   Map<int, TextEditingController> specControllers = {}; // fieldId -> controller
   bool isLoadingSpecs = false;
 
+
+int? _toIntSafe(dynamic v) {
+  if (v == null) return null;
+  if (v is int) return v;
+  if (v is double) return v.toInt();
+  try {
+    return int.parse(v.toString());
+  } catch (_) {
+    return null;
+  }
+}
+
 int? _getCategoryId(Map<String, dynamic> m) =>
     _toIntSafe(m['CategoryID'] ?? m['category_id']);
 
@@ -83,6 +95,7 @@ int? _getBrandId(Map<String, dynamic> m) =>
 @override
 void initState() {
   super.initState();
+   debugPrint("🟡 AddEditProductPage opened with productId = ${widget.productId}");
   _initAll();
 }
 
@@ -115,7 +128,8 @@ Future<void> _initAll() async {
 
     super.dispose();
   }
-Future<void> loadData() async {
+
+  Future<void> loadData() async {
   try {
     final cats = await ApiService.getCategories();
     final brs = await ApiService.getBrands();
@@ -138,26 +152,24 @@ Future<void> loadData() async {
     if (!mounted) return;
 
     setState(() {
-      categories = List<Map<String, dynamic>>.from(cats);
-      brands = List<Map<String, dynamic>>.from(brs);
+      categories = cats.map<Map<String, dynamic>>((c) => {
+            'CategoryID': _toIntSafe(c['CategoryID'] ?? c['category_id']),
+            'Name': c['Name'] ?? c['name'] ?? 'Unnamed',
+          }).toList();
+
+      brands = brs.map<Map<String, dynamic>>((b) => {
+            'BrandID': _toIntSafe(b['BrandID'] ?? b['brand_id']),
+            'Name': b['Name'] ?? b['name'] ?? 'Unnamed',
+            'SubcategoryID':
+                _toIntSafe(b['SubcategoryID'] ?? b['subcategory_id']),
+          }).toList();
+
       variantTypes = normalizedVT;
-      // ❌ DO NOT auto-select category here
     });
   } catch (e) {
     debugPrint('❌ loadData error: $e');
   }
 }
-
-  int? _toIntSafe(dynamic v) {
-    if (v == null) return null;
-    if (v is int) return v;
-    if (v is double) return v.toInt();
-    try {
-      return int.parse(v.toString());
-    } catch (_) {
-      return null;
-    }
-  }
 
   /// ---------------------- SPEC TEMPLATE + EXISTING VALUES ----------------------
   Future<void> _loadSpecTemplateAndValues() async {
@@ -225,9 +237,12 @@ Future<void> loadData() async {
           parent["VideoUrl"]?.toString() ?? parent["videoUrl"]?.toString() ?? "";
 
       // 2) Category / Subcategory / Brand
-      selectedCategoryId = _toIntSafe(parent['CategoryID']);
-      selectedSubcategoryId = _toIntSafe(parent['SubcategoryID']);
-      selectedBrandId = _toIntSafe(parent['BrandID']);
+     setState(() {
+  selectedCategoryId = _toIntSafe(parent['CategoryID']);
+  selectedSubcategoryId = _toIntSafe(parent['SubcategoryID']);
+  selectedBrandId = _toIntSafe(parent['BrandID']);
+});
+
 
       filteredSubcategories = [];
       filteredBrands = [];
@@ -236,14 +251,28 @@ Future<void> loadData() async {
       if (selectedCategoryId != null) {
         final subs =
             await ApiService.getSubcategories(selectedCategoryId!);
-        filteredSubcategories =
-            List<Map<String, dynamic>>.from(subs);
+      filteredSubcategories = subs.map<Map<String, dynamic>>((s) => {
+      'SubcategoryID':
+          _toIntSafe(s['SubcategoryID'] ?? s['subcategory_id']),
+      'Name': s['Name'] ?? s['name'] ?? 'Unnamed',
+      'CategoryID': _toIntSafe(s['CategoryID'] ?? s['category_id']),
+    }).toList();
+
       }
 
       // Filter brands for selected subcategory
-      filteredBrands = brands
-          .where((b) => _toIntSafe(b["SubcategoryID"]) == selectedSubcategoryId)
-          .toList();
+   setState(() {
+  filteredBrands = brands
+      .where((b) =>
+          _toIntSafe(b["SubcategoryID"]) == selectedSubcategoryId)
+      .toList();
+});
+debugPrint("✅ Categories loaded: ${categories.length}");
+debugPrint("✅ Selected categoryId: $selectedCategoryId");
+debugPrint("✅ Filtered subcategories: ${filteredSubcategories.length}");
+debugPrint("✅ Selected subcategoryId: $selectedSubcategoryId");
+debugPrint("✅ Filtered brands: ${filteredBrands.length}");
+debugPrint("✅ Selected brandId: $selectedBrandId");
 
       // Remove duplicate brands just in case
       final seen = <int>{};
@@ -1578,9 +1607,15 @@ void onCategoryChanged(int value) async {
 
   if (!mounted) return;
 
-  setState(() {
-    filteredSubcategories = List<Map<String, dynamic>>.from(subs);
-  });
+ setState(() {
+  filteredSubcategories = subs.map<Map<String, dynamic>>((s) => {
+        'SubcategoryID':
+            _toIntSafe(s['SubcategoryID'] ?? s['subcategory_id']),
+        'Name': s['Name'] ?? s['name'] ?? 'Unnamed',
+        'CategoryID': _toIntSafe(s['CategoryID'] ?? s['category_id']),
+      }).toList();
+});
+
 }
 
 

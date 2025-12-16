@@ -238,9 +238,15 @@ Future<void> _initAll() async {
 
       // 2) Category / Subcategory / Brand
      setState(() {
-  selectedCategoryId = _toIntSafe(parent['CategoryID']);
-  selectedSubcategoryId = _toIntSafe(parent['SubcategoryID']);
-  selectedBrandId = _toIntSafe(parent['BrandID']);
+ selectedCategoryId =
+    _toIntSafe(parent['category_id'] ?? parent['CategoryID']);
+
+selectedSubcategoryId =
+    _toIntSafe(parent['subcategory_id'] ?? parent['SubcategoryID']);
+
+selectedBrandId =
+    _toIntSafe(parent['brand_id'] ?? parent['BrandID']);
+
 });
 
 

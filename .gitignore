@@ -7,6 +7,10 @@
 .flutter-plugins-dependencies
 .pubspec.lock
 
+# Environment variables
+.env
+.env.*
+
 # Android
 android/.gradle/
 android/local.properties

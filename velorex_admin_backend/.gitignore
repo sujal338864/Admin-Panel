@@ -48,3 +48,16 @@ app.*.map.json
 android/app/debug
 android/app/profile
 android/app/release
+# Flutter build
+build/
+
+# Backend accidental flutter folders
+velorex_admin_backend/ios/
+velorex_admin_backend/lib/
+velorex_admin_backend/linux/
+velorex_admin_backend/macos/
+velorex_admin_backend/web/
+
+# Local test files
+velorex_admin_backend/test-db.js
+velorex_admin_backend/{

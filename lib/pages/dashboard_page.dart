@@ -94,21 +94,23 @@ class _AdminHomePageState extends State<AdminHomePage> {
   }
 
   // ---------- LOAD DATA ----------
-  Future<void> fetchAllData() async {
-    setState(() => isLoading = true);
-    try {
-      products = await ApiService.getProducts();
-      orders = await AdminOrderService.getAllOrders();
+ Future<void> fetchAllData() async {
+  setState(() => isLoading = true);
+  try {
+    products = await ApiService.getProducts();
+    filteredProducts = List.from(products); // ✅ ADD THIS
+    orders = await AdminOrderService.getAllOrders();
 
-      _recalculateStats();
-    } catch (e) {
-      debugPrint('Error loading dashboard data: $e');
-      products = [];
-      orders = [];
-      _recalculateStats();
-    }
-    setState(() => isLoading = false);
+    _recalculateStats();
+  } catch (e) {
+    products = [];
+    filteredProducts = []; // ✅ SAFE
+    orders = [];
+    _recalculateStats();
   }
+  setState(() => isLoading = false);
+}
+
 
  void _recalculateStats() {
   // PRODUCTS
@@ -563,7 +565,10 @@ Widget _buildProductTableCard() {
 
   // ---------- PRODUCT TABLE ----------
 Widget _buildProductTable() {
-  final list = filteredProducts;
+ final list = filteredProducts.isNotEmpty
+    ? filteredProducts
+    : products;
+
 
   if (list.isEmpty) {
     return const Center(child: Text('No products for this filter'));
@@ -643,25 +648,35 @@ DataCell(Text(product['subcategory_name'] ?? '—')),
                   // ACTION BUTTONS
                   DataCell(Row(
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.blue),
-                        onPressed: () async {
-                          await Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (_) => AddEditProductPage(
-      productId: product['ProductID'], // ✅ REQUIRED
-    ),
-  ),
-);
+                  IconButton(
+  icon: const Icon(Icons.edit, color: Colors.blue),
+  onPressed: () async {
+    final id = product['product_id']; // ✅ SINGLE SOURCE OF TRUTH
 
-                          fetchAllData();
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () => deleteProduct(product['id']),
-                      ),
+    debugPrint('🧪 EDIT CLICK ID = $id');
+
+    if (id == null) {
+      debugPrint('❌ product_id is NULL — edit blocked');
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddEditProductPage(productId: id),
+      ),
+    );
+
+    fetchAllData();
+  },
+),
+
+
+             IconButton(
+  icon: const Icon(Icons.delete, color: Colors.red),
+  onPressed: () => deleteProduct(product['product_id']), // ✅ FIX
+),
+
                     ],
                   )),
                 ],

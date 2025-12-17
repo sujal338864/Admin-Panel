@@ -10,9 +10,9 @@ const pool = new Pool({
 
   ssl: { rejectUnauthorized: false },
 
-  // 🔥 IMPORTANT (prevents db_termination)
-  max: 10,                     // max connections
-  idleTimeoutMillis: 30000,    // close idle clients
+  // ✅ SAFE for Supabase Pooler
+  max: 3,
+  idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 });
 
@@ -21,7 +21,7 @@ pool.on("connect", () => {
 });
 
 pool.on("error", (err) => {
-  console.error("🔥 Unexpected PG error", err);
+  console.error("🔥 PG pool error:", err);
 });
 
 module.exports = pool;

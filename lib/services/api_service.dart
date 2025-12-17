@@ -141,6 +141,64 @@ class ApiService {
     }
     throw Exception("Failed to load variant group");
   }
+/// ---------------------------------------------------
+/// UPDATE CHILD PRODUCT (variants only)
+/// ---------------------------------------------------
+static Future<Map<String, dynamic>> updateChildProduct({
+  required int productId,
+  required Map<String, dynamic> data,
+  List<File>? images,
+}) async {
+  try {
+    final uri = Uri.parse("$baseUrl/products/child/$productId");
+    final req = http.MultipartRequest("PUT", uri);
+
+    // fields
+    data.forEach((k, v) {
+      if (v != null) {
+        req.fields[k] = v.toString();
+      }
+    });
+
+    // images
+    if (images != null) {
+      for (final f in images) {
+        req.files.add(
+          await http.MultipartFile.fromPath("images", f.path),
+        );
+      }
+    }
+
+    final streamed = await req.send();
+    final body = await streamed.stream.bytesToString();
+
+    print("🟣 updateChildProduct STATUS: ${streamed.statusCode}");
+    print("BODY: $body");
+
+    return jsonDecode(body);
+  } catch (e) {
+    return {"success": false, "error": e.toString()};
+  }
+}
+static Future<bool> updateParentProduct({
+  required int productId,
+  required Map<String, dynamic> data,
+  List<File>? images,
+}) async {
+  final uri = Uri.parse("$baseUrl/products/$productId");
+  final req = http.MultipartRequest("PUT", uri);
+
+  data.forEach((k, v) {
+    if (v != null) req.fields[k] = v.toString();
+  });
+
+  for (final f in images ?? []) {
+    req.files.add(await http.MultipartFile.fromPath("images", f.path));
+  }
+
+  final res = await req.send();
+  return res.statusCode == 200;
+}
 
   /// ---------------------------------------------------
   /// CREATE NORMAL PRODUCT (non-variant)
@@ -459,7 +517,10 @@ static Future<Map<String, dynamic>> updateProductWithVariants({
   /// 
   /// specificaion
   /// 
+  /// 
+  /// 
   /// 1) Get sections + fields template
+  /// 
   static Future<List<SpecSection>> getSpecSectionsWithFields() async {
     final uri = Uri.parse("$baseUrl/products/spec/sections-with-fields");
     final res = await http.get(uri);
@@ -480,29 +541,31 @@ static Future<Map<String, dynamic>> updateProductWithVariants({
         .toList();
   }
 
-  /// 2) Get existing values for a product
-  static Future<Map<int, String>> getProductSpecs(int productId) async {
-    final uri = Uri.parse("$baseUrl/products/spec/product/$productId");
-    final res = await http.get(uri);
+ static Future<Map<int, String>> getProductSpecs(int productId) async {
+  final uri = Uri.parse("$baseUrl/products/spec/product/$productId");
+  final res = await http.get(uri);
 
-    if (res.statusCode != 200) {
-      throw Exception('Failed to load product specs');
-    }
+  if (res.statusCode != 200) {
+    throw Exception('Failed to load product specs');
+  }
 
-    final List<dynamic> decoded = jsonDecode(res.body);
-    final Map<int, String> result = {};
+  final decoded = jsonDecode(res.body);
 
+  final Map<int, String> result = {};
+
+  if (decoded is List) {
     for (final row in decoded) {
       final map = row as Map<String, dynamic>;
-      final fid = map['FieldID'] ?? map['fieldId'];
+      final fid = map['FieldID'];
       if (fid == null) continue;
-      final intFieldId = int.tryParse(fid.toString());
-      if (intFieldId == null) continue;
-      result[intFieldId] = (map['Value'] ?? '').toString();
+      result[int.parse(fid.toString())] =
+          (map['Value'] ?? '').toString();
     }
-
-    return result;
   }
+
+  return result;
+}
+
 
   /// 3) Save product specs
   static Future<bool> saveProductSpecs({

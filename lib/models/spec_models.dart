@@ -16,7 +16,6 @@ class SpecField {
   });
 
   factory SpecField.fromJson(Map<String, dynamic> json) {
-    // 🟢 options can be null / string / array → normalize
     final rawOptions = json['options'];
 
     final List<String> opts = rawOptions == null
@@ -29,15 +28,16 @@ class SpecField {
             .toList();
 
     return SpecField(
-      fieldId: json['field_id'] ?? 0,          // ✅ NEVER NULL
-      sectionId: json['section_id'] ?? 0,      // ✅ NEVER NULL
+      fieldId: json['field_id'] ?? json['FieldID'] ?? 0,
+      sectionId: json['section_id'] ?? json['SectionID'] ?? 0,
       name: (json['name'] ?? '').toString(),
       inputType: (json['input_type'] ?? 'text').toString(),
-      sortOrder: json['sort_order'] ?? 0,      // ✅ FIX FOR CRASH
+      sortOrder: json['sort_order'] ?? 0,
       options: opts,
     );
   }
 }
+
 
 class SpecSection {
   final int sectionId;

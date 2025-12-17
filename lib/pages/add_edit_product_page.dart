@@ -9,6 +9,7 @@ import 'package:admin_panel/models/spec_models.dart'; // ⬅️ SpecSection / Sp
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../models/variant_models.dart';
 import '../services/api_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -51,6 +52,7 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
 
   bool isSaving = false;
   bool isLoading = false;
+  bool isChildProduct = false;
 
   // data lists
   List<Map<String, dynamic>> categories = [];
@@ -70,7 +72,52 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
   List<SpecSection> specSections = [];
   Map<int, TextEditingController> specControllers = {}; // fieldId -> controller
   bool isLoadingSpecs = false;
+Map<int, String> productSpecs = {};
 
+final ScrollController _pageScrollCtrl = ScrollController();
+
+Map<String, dynamic> normalizeSubcategory(Map<String, dynamic> s) {
+  return {
+    'SubcategoryID': _toIntSafe(s['SubcategoryID'] ?? s['subcategory_id']),
+    'Name': s['Name'] ?? s['name'] ?? 'Unnamed',
+    'CategoryID': _toIntSafe(s['CategoryID'] ?? s['category_id']),
+  };
+}
+
+
+void _filterBrandsForSubcategory() {
+  if (selectedSubcategoryId == null) {
+    filteredBrands = [];
+    selectedBrandId = null;
+    return;
+  }
+
+  // Filter brands by subcategory
+  filteredBrands = brands
+      .where(
+        (b) => _toIntSafe(b['SubcategoryID']) == selectedSubcategoryId,
+      )
+      .toList();
+
+  // Remove duplicate brands
+  final seen = <int>{};
+  filteredBrands = filteredBrands.where((b) {
+    final id = _toIntSafe(b['BrandID']);
+    if (id == null) return false;
+    if (seen.contains(id)) return false;
+    seen.add(id);
+    return true;
+  }).toList();
+
+  // If previously selected brand is not in list → reset
+  final stillValid = filteredBrands.any(
+    (b) => _toIntSafe(b['BrandID']) == selectedBrandId,
+  );
+
+  if (!stillValid) {
+    selectedBrandId = null;
+  }
+}
 
 int? _toIntSafe(dynamic v) {
   if (v == null) return null;
@@ -125,7 +172,7 @@ Future<void> _initAll() async {
     for (final c in specControllers.values) {
       c.dispose();
     }
-
+  _pageScrollCtrl.dispose();
     super.dispose();
   }
 
@@ -171,246 +218,150 @@ Future<void> _initAll() async {
   }
 }
 
-  /// ---------------------- SPEC TEMPLATE + EXISTING VALUES ----------------------
-  Future<void> _loadSpecTemplateAndValues() async {
-    setState(() => isLoadingSpecs = true);
-    try {
-      // 1) Get sections + fields template
-      final sections = await ApiService.getSpecSectionsWithFields();
-      final Map<int, String> existingValues = {};
+Future<void> loadExistingProduct(int id) async {
+  if (!mounted) return;
 
-      // 2) If editing existing product (PARENT OR CHILD) → load stored values
-      if (widget.productId != null) {
-        final vals = await ApiService.getProductSpecs(widget.productId!);
-        existingValues.addAll(vals);
-      }
+  setState(() => isLoading = true);
 
-      // 3) Create controllers for each field
-      final Map<int, TextEditingController> ctrls = {};
-      for (final sec in sections) {
-        for (final field in sec.fields) {
-          final existing = existingValues[field.fieldId] ?? '';
-          ctrls[field.fieldId] = TextEditingController(text: existing);
+  try {
+    final resp = await ApiService.getProductWithVariants(id);
+    if (resp == null) throw Exception("Empty response");
+
+    final Map<String, dynamic> parent =
+        Map<String, dynamic>.from(resp["parent"] ?? {});
+    final List<dynamic> children = resp["children"] ?? [];
+
+    // ✅ CRITICAL: Detect child product FIRST
+    isChildProduct = parent['parent_product_id'] != null;
+    debugPrint("🧠 isChildProduct = $isChildProduct");
+
+    debugPrint("🟢 Editing productId=$id");
+    debugPrint("🟢 Parent: $parent");
+
+    // ---------- BASIC FIELDS ----------
+    nameController.text = parent["name"]?.toString() ?? "";
+    descriptionController.text = parent["description"]?.toString() ?? "";
+    priceController.text = parent["price"]?.toString() ?? "0";
+    offerPriceController.text = parent["offer_price"]?.toString() ?? "0";
+    quantityController.text = parent["quantity"]?.toString() ?? "1";
+    stock = _toIntSafe(parent["stock"]) ?? 0;
+
+    parentVideoController.text =
+        parent["video_url"]?.toString() ?? "";
+
+    // ---------- CATEGORY / SUBCATEGORY / BRAND ----------
+    selectedCategoryId = _toIntSafe(parent['category_id']);
+    selectedSubcategoryId = _toIntSafe(parent['subcategory_id']);
+    selectedBrandId = _toIntSafe(parent['brand_id']);
+
+    // 🔥 LOAD SUBCATEGORIES FIRST (FIXES NULL ISSUE)
+    if (selectedCategoryId != null) {
+      final subs = await ApiService.getSubcategories(selectedCategoryId!);
+
+      filteredSubcategories = subs.map<Map<String, dynamic>>((s) => {
+            'SubcategoryID':
+                _toIntSafe(s['SubcategoryID'] ?? s['subcategory_id']),
+            'Name': s['Name'] ?? s['name'] ?? 'Unnamed',
+            'CategoryID':
+                _toIntSafe(s['CategoryID'] ?? s['category_id']),
+          }).toList();
+    }
+
+    _filterBrandsForSubcategory();
+
+    // 🔥 LOAD SPEC TEMPLATE + EXISTING VALUES (FIX)
+    await _loadSpecTemplateAndValues();
+
+    // ---------- IMAGES ----------
+    parentImageUrls.clear();
+    imageFiles.clear();
+    imageBytes.clear();
+
+    if (parent["images"] is List) {
+      for (final img in parent["images"]) {
+        final url = img["image_url"]?.toString();
+        if (url != null && url.isNotEmpty) {
+          parentImageUrls.add(url);
         }
-      }
-
-      setState(() {
-        specSections = sections;
-        specControllers = ctrls;
-      });
-    } catch (e) {
-      debugPrint('❌ load specs error: $e');
-    } finally {
-      if (mounted) {
-        setState(() => isLoadingSpecs = false);
       }
     }
+
+    // ---------- VARIANTS ----------
+    combos.clear();
+    selectedVariantPes.clear();
+
+    for (final ch in children) {
+      final Map chMap = ch as Map;
+
+      combos.add(
+        VariantCombo(
+          selections: {},
+          price: double.tryParse(chMap["price"]?.toString() ?? "") ?? 0,
+          offerPrice:
+              double.tryParse(chMap["offer_price"]?.toString() ?? "") ?? 0,
+          stock: _toIntSafe(chMap["stock"]) ?? 0,
+          sku: chMap["sku"]?.toString() ?? "",
+          description: chMap["description"]?.toString() ?? "",
+          useParentImages: true,
+          videoUrl: chMap["video_url"]?.toString() ?? "",
+        ),
+      );
+    }
+
+    debugPrint("🟣 Variants loaded: ${combos.length}");
+    setState(() {});
+  } catch (e, st) {
+    debugPrint("❌ loadExistingProduct ERROR: $e");
+    debugPrintStack(stackTrace: st);
+  } finally {
+    if (mounted) setState(() => isLoading = false);
   }
+}
 
-  /// =============================
-  /// LOAD EXISTING PRODUCT (OPTION A FINAL)
-  /// =============================
-  Future<void> loadExistingProduct(int id) async {
-    setState(() => isLoading = true);
+Future<void> _loadSpecTemplateAndValues() async {
+  if (!mounted) return;
 
-    try {
-      final resp = await ApiService.getProductWithVariants(id);
-      if (resp == null) throw Exception("Empty response");
+  setState(() => isLoadingSpecs = true);
 
-      // IMPORTANT: "parent" here is ALWAYS the product you clicked (parent OR child)
-      final Map<String, dynamic> parent =
-          Map<String, dynamic>.from(resp["parent"] ?? {});
-      final List<dynamic> children = resp["children"] ?? [];
+  try {
+    // 1️⃣ Load spec template
+    final sections = await ApiService.getSpecSectionsWithFields();
 
-      debugPrint("🟢 Editing productId=$id as main product");
-      debugPrint("🟢 Parent row: $parent");
+    // 2️⃣ Load existing values FOR ANY PRODUCT
+    final Map<int, String> existingValues = {};
 
-      // 1) Fill parent (main product) fields
-      nameController.text = parent["Name"]?.toString() ?? "";
-      descriptionController.text = parent["Description"]?.toString() ?? "";
-      priceController.text = parent["Price"]?.toString() ?? "0";
-      offerPriceController.text = parent["OfferPrice"]?.toString() ?? "0";
-      quantityController.text = parent["Quantity"]?.toString() ?? "1";
-      stock = _toIntSafe(parent["Stock"]) ?? 0;
+    if (widget.productId != null) {
+      final vals = await ApiService.getProductSpecs(widget.productId!);
+      existingValues.addAll(vals);
 
-      parentVideoController.text =
-          parent["VideoUrl"]?.toString() ?? parent["videoUrl"]?.toString() ?? "";
+      debugPrint("🟢 Loaded existing spec values: $existingValues");
+    }
 
-      // 2) Category / Subcategory / Brand
-     setState(() {
- selectedCategoryId =
-    _toIntSafe(parent['category_id'] ?? parent['CategoryID']);
+    // 3️⃣ Build controllers
+    final Map<int, TextEditingController> ctrls = {};
 
-selectedSubcategoryId =
-    _toIntSafe(parent['subcategory_id'] ?? parent['SubcategoryID']);
-
-selectedBrandId =
-    _toIntSafe(parent['brand_id'] ?? parent['BrandID']);
-
-});
-
-
-      filteredSubcategories = [];
-      filteredBrands = [];
-
-      // Load subcategories for this category
-      if (selectedCategoryId != null) {
-        final subs =
-            await ApiService.getSubcategories(selectedCategoryId!);
-      filteredSubcategories = subs.map<Map<String, dynamic>>((s) => {
-      'SubcategoryID':
-          _toIntSafe(s['SubcategoryID'] ?? s['subcategory_id']),
-      'Name': s['Name'] ?? s['name'] ?? 'Unnamed',
-      'CategoryID': _toIntSafe(s['CategoryID'] ?? s['category_id']),
-    }).toList();
-
-      }
-
-      // Filter brands for selected subcategory
-   setState(() {
-  filteredBrands = brands
-      .where((b) =>
-          _toIntSafe(b["SubcategoryID"]) == selectedSubcategoryId)
-      .toList();
-});
-debugPrint("✅ Categories loaded: ${categories.length}");
-debugPrint("✅ Selected categoryId: $selectedCategoryId");
-debugPrint("✅ Filtered subcategories: ${filteredSubcategories.length}");
-debugPrint("✅ Selected subcategoryId: $selectedSubcategoryId");
-debugPrint("✅ Filtered brands: ${filteredBrands.length}");
-debugPrint("✅ Selected brandId: $selectedBrandId");
-
-      // Remove duplicate brands just in case
-      final seen = <int>{};
-      filteredBrands = filteredBrands.where((b) {
-        final bid = _toIntSafe(b["BrandID"]);
-        if (bid == null) return false;
-        if (seen.contains(bid)) return false;
-        seen.add(bid);
-        return true;
-      }).toList();
-
-      // Validate current brand actually exists in filtered list
-      final brandValid = selectedBrandId != null &&
-          filteredBrands.any(
-            (b) => _toIntSafe(b["BrandID"]) == selectedBrandId,
-          );
-      if (!brandValid) {
-        debugPrint("⚠ Brand not found for this subcategory → resetting brand");
-        selectedBrandId = null;
-      }
-
-      // 3) Parent images (URLs only; new uploads go to imageFiles / imageBytes)
-      parentImageUrls = [];
-      imageFiles = [];
-      imageBytes = [];
-
-      if (parent["images"] != null && parent["images"] is List) {
-        for (final imgRow in parent["images"]) {
-          try {
-            final url = imgRow["ImageURL"]?.toString() ??
-                imgRow["ImageUrl"]?.toString();
-            if (url != null && url.isNotEmpty) {
-              parentImageUrls.add(url);
-            }
-          } catch (_) {}
-        }
-      }
-
-      // 4) Parse child variants (if any). If this product has no children,
-      //    children will be empty and combos stay empty → fine.
-      combos.clear();
-      selectedVariantPes.clear();
-
-      final Map<String, Set<String>> typeToValues = {};
-
-      for (final ch in children) {
-        if (ch is! Map) continue;
-        final Map chMap = ch;
-
-        final List variantSel = chMap["variantSelections"] ?? [];
-        final Map<String, String> comboSelections = {};
-
-        if (variantSel.isNotEmpty) {
-          for (final sel in variantSel) {
-            final typeName = sel["VariantTypeName"] ??
-                sel["VariantType"] ??
-                sel["variantType"] ??
-                "Variant";
-
-            final valueName = sel["VariantName"] ??
-                sel["VariantValue"] ??
-                sel["variant"] ??
-                sel["Variant"] ??
-                "";
-
-            if (typeName != null && valueName != null) {
-              final t = typeName.toString();
-              final v = valueName.toString();
-              typeToValues.putIfAbsent(t, () => <String>{});
-              typeToValues[t]!.add(v);
-              comboSelections[t] = v;
-            }
-          }
-        } else {
-          // Fallback: parse from Name, e.g. "Product (Black, XL)"
-          final childName = chMap["Name"]?.toString() ?? "";
-          final match = RegExp(r"\((.*?)\)").firstMatch(childName);
-
-          if (match != null) {
-            final parts =
-                match.group(1)!.split(",").map((e) => e.trim()).toList();
-            for (var i = 0; i < parts.length; i++) {
-              final type = "Variant${i + 1}";
-              final val = parts[i];
-
-              typeToValues.putIfAbsent(type, () => <String>{});
-              typeToValues[type]!.add(val);
-              comboSelections[type] = val;
-            }
-          }
-        }
-
-        final childVideo = chMap["VideoUrl"]?.toString() ??
-            chMap["videoUrl"]?.toString() ??
-            "";
-
-        combos.add(
-          VariantCombo(
-            selections: comboSelections,
-            price: double.tryParse(chMap["Price"]?.toString() ?? "") ?? 0,
-            offerPrice:
-                double.tryParse(chMap["OfferPrice"]?.toString() ?? "") ?? 0,
-            stock: _toIntSafe(chMap["Stock"]) ?? 0,
-            sku: chMap["SKU"]?.toString() ?? "",
-            description: chMap["Description"]?.toString() ?? "",
-            useParentImages: true, // children use parent images by default here
-            videoUrl: childVideo,
-          ),
+    for (final sec in sections) {
+      for (final field in sec.fields) {
+        ctrls[field.fieldId] = TextEditingController(
+          text: existingValues[field.fieldId] ?? '',
         );
       }
-
-      selectedVariantPes = typeToValues.entries
-          .map(
-            (e) => {
-              "typeId": null, // we don't map back to VariantTypes table here
-              "name": e.key,
-              "values": e.value.toList(),
-            },
-          )
-          .toList();
-
-      debugPrint("🟣 Final variant types: $selectedVariantPes");
-
-      setState(() {});
-    } catch (e, st) {
-      debugPrint("❌ loadExistingProduct ERROR: $e\n$st");
-    } finally {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
     }
+
+    if (!mounted) return;
+    setState(() {
+      specSections = sections;
+      specControllers = ctrls;
+    });
+  } catch (e, st) {
+    debugPrint('❌ load specs error: $e');
+    debugPrintStack(stackTrace: st);
+  } finally {
+    if (mounted) setState(() => isLoadingSpecs = false);
   }
+}
+
+
 
   // ----------------- IMAGE PICK / COMPRESS -----------------
   Future<void> pickParentImage() async {
@@ -780,220 +731,208 @@ debugPrint("✅ Selected brandId: $selectedBrandId");
     return specs;
   }
 
-  Widget _buildSpecificationSection() {
-    return Card(
-      margin: const EdgeInsets.only(top: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Specifications',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            if (isLoadingSpecs)
-              const Padding(
-                padding: EdgeInsets.all(8.0),
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 8),
-                    Text('Loading specification template...'),
-                  ],
-                ),
-              )
-            else if (specSections.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(8.0),
-                child: Text(
-                  'No specification template configured yet.',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              )
-            else
-              Column(
-                children: specSections.map((sec) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Divider(),
-                      Text(
-                        sec.name,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      ...sec.fields.map((field) {
-                        final ctrl = specControllers[field.fieldId] ??
-                            TextEditingController();
-                        specControllers[field.fieldId] = ctrl;
+Widget _buildSpecificationSection() {
+  return Card(
+    margin: const EdgeInsets.only(top: 8),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    elevation: 3,
+    child: Padding(
+      padding: const EdgeInsets.all(12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Specifications',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
 
+          if (isLoadingSpecs)
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text('Loading specification template...'),
+                ],
+              ),
+            )
+          else if (specSections.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text(
+                'No specification template configured yet.',
+                style: TextStyle(color: Colors.grey),
+              ),
+            )
+          else
+            Column(
+              children: specSections.map((sec) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Divider(),
+                    Text(
+                      sec.name,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+
+                    ...sec.fields.map((field) {
+                      final ctrl = specControllers[field.fieldId];
+
+                      if (ctrl == null) return const SizedBox.shrink();
+
+                      // 🔹 DROPDOWN FIELD
+                      if (field.inputType == 'select' &&
+                          field.options.isNotEmpty) {
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: TextFormField(
-                            controller: ctrl,
+                          child: DropdownButtonFormField<String>(
+                            value: ctrl.text.isEmpty ? null : ctrl.text,
                             decoration: InputDecoration(
                               labelText: field.name,
                               border: const OutlineInputBorder(),
                             ),
+                            items: field.options
+                                .map(
+                                  (opt) => DropdownMenuItem(
+                                    value: opt,
+                                    child: Text(opt),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) {
+                              ctrl.text = v ?? '';
+                            },
                           ),
                         );
-                      }).toList(),
-                    ],
-                  );
-                }).toList(),
-              ),
-          ],
-        ),
+                      }
+
+                      // 🔹 TEXT FIELD (DEFAULT)
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: TextFormField(
+                          controller: ctrl,
+                          decoration: InputDecoration(
+                            labelText: field.name,
+                            border: const OutlineInputBorder(),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                );
+              }).toList(),
+            ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
-  // ----------------- Save product -----------------
-  Future<void> saveProduct() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => isSaving = true);
+// ----------------- FINAL SAVE PRODUCT -----------------
+Future<void> saveProduct() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    try {
-      name = nameController.text.trim();
-      description = descriptionController.text.trim();
-      price = double.tryParse(priceController.text) ?? 0.0;
-      offerPrice = double.tryParse(offerPriceController.text) ?? 0.0;
-      quantity = int.tryParse(quantityController.text) ?? 1;
+  setState(() => isSaving = true);
 
-      final parentJson = {
-        'name': name,
-        'description': description,
-        'categoryId': selectedCategoryId,
-        'subcategoryId': selectedSubcategoryId,
-        'brandId': selectedBrandId,
-        'isSponsored': 0,
-        'price': price,
-        'offerPrice': offerPrice,
-        'quantity': quantity,
-        'stock': stock,
-        'videoUrl': parentVideoController.text.trim(),
-        if (widget.productId != null) 'productId': widget.productId,
-      };
+  try {
+    // ---------------- BASIC FIELDS ----------------
+    final name = nameController.text.trim();
+    final description = descriptionController.text.trim();
+    final price = double.tryParse(priceController.text) ?? 0.0;
+    final offerPrice = double.tryParse(offerPriceController.text) ?? 0.0;
+    final quantity = int.tryParse(quantityController.text) ?? 1;
 
-      final List<Map<String, dynamic>> variantsPayload = [];
-      final Map<String, List<dynamic>> childImageMap = {};
+    // ---------------- COMMON PAYLOAD ----------------
+    final parentJson = {
+      'name': name,
+      'description': description,
+      'categoryId': selectedCategoryId,
+      'subcategoryId': selectedSubcategoryId,
+      'brandId': selectedBrandId,
+      'price': price,
+      'offerPrice': offerPrice,
+      'quantity': quantity,
+      'stock': stock,
+      'videoUrl': parentVideoController.text.trim(),
+    };
 
-      for (final combo in combos) {
-        final selectionsList = combo.selections.entries
-            .map((e) => {'VariantType': e.key, 'Variant': e.value})
-            .toList();
+    // ---------------- CREATE ----------------
+    if (widget.productId == null) {
+      await ApiService.uploadProductWithVariants(
+        parentJson: parentJson,
+        variantsPayload: [],
+        parentImageFiles: imageFiles,
+        parentImageBytes: imageBytes,
+        childVariants: [],
+      );
+    }
 
-        final comboKey = combo.comboKey();
-
-        variantsPayload.add({
-          'combinationKey': comboKey,
-          'label': combo.selections.values.join(', '),
-          'selections': selectionsList,
-          'price': combo.price,
-          'offerPrice': combo.offerPrice,
-          'stock': combo.stock,
-          'sku': combo.sku,
-          'description': combo.description,
-          'useParentImages': combo.useParentImages,
-          'videoUrl': combo.videoUrl,
-        });
-
-        if (combo.useParentImages == false) {
-          final fieldKey = "images_$comboKey";
-          childImageMap[fieldKey] = [];
-
-          if (combo.imageFile != null) {
-            childImageMap[fieldKey]!.add(combo.imageFile!);
-          }
-          if (combo.imageBytes != null) {
-            childImageMap[fieldKey]!.add(combo.imageBytes!);
-          }
-
-          if (combo.extraImages != null) {
-            for (var img in combo.extraImages!) {
-              if (img is File || img is Uint8List) {
-                childImageMap[fieldKey]!.add(img);
-              }
-            }
-          }
-        }
-      }
-
-      late final resp;
-
-      if (widget.productId == null) {
-        /// CREATE
-        resp = await ApiService.uploadProductWithVariants(
-          parentJson: parentJson,
-          variantsPayload: variantsPayload,
-          parentImageFiles: imageFiles,
-          parentImageBytes: imageBytes,
-          childVariants: childImageMap.entries
-              .map(
-                (e) => {
-                  'comboKey': e.key.replaceFirst("images_", ""),
-                  'images': e.value,
-                },
-              )
-              .toList(),
+    // ---------------- UPDATE ----------------
+    else {
+      if (isChildProduct) {
+        // 🔹 CHILD UPDATE
+        await ApiService.updateChildProduct(
+          productId: widget.productId!,
+          data: {
+            'name': name,
+            'price': price,
+            'offerPrice': offerPrice,
+            'quantity': quantity,
+            'stock': stock,
+            'sku': parentJson['sku'] ?? '',
+          },
+          images: imageFiles.isNotEmpty ? imageFiles : null,
         );
       } else {
-        /// UPDATE (parent OR child)
-        resp = await ApiService.updateProductWithVariants(
+        // 🔹 PARENT UPDATE
+        await ApiService.updateParentProduct(
           productId: widget.productId!,
-          parentJson: parentJson,
-          variantsPayload: variantsPayload,
-          parentImageFiles: imageFiles,
-          parentImageBytes: imageBytes,
-          childVariants: childImageMap.entries
-              .map(
-                (e) => {
-                  'comboKey': e.key.replaceFirst("images_", ""),
-                  'images': e.value,
-                },
-              )
-              .toList(),
+          data: parentJson,
+          images: imageFiles.isNotEmpty ? imageFiles : null,
         );
-      }
-
-      // Save Specs — ALWAYS for the product being edited (parent OR child)
-      final specsPayload = _collectSpecsToSave();
-      if (specsPayload.isNotEmpty) {
-        await ApiService.saveProductSpecs(
-          productId: widget.productId ?? resp['parentProductId'],
-          specs: specsPayload,
-        );
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Product saved successfully")),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save failed: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => isSaving = false);
       }
     }
+
+    // ---------------- SAVE SPECS (PARENT + CHILD) ----------------
+final specsPayload = _collectSpecsToSave();
+
+if (widget.productId != null && specsPayload.isNotEmpty) {
+  await ApiService.saveProductSpecs(
+    productId: widget.productId!,
+    specs: specsPayload,
+  );
+}
+
+
+    // ---------------- DONE ----------------
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Product saved successfully")),
+      );
+      Navigator.pop(context);
+    }
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Save failed: $e")),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => isSaving = false);
   }
+}
+
 
   /// ---------------------- UI BUILD ----------------------
   @override
@@ -1009,7 +948,9 @@ debugPrint("✅ Selected brandId: $selectedBrandId");
       appBar: AppBar(
         title: Text(widget.productId == null ? 'Add Product' : 'Edit Product'),
       ),
-      body: SingleChildScrollView(
+    body: SingleChildScrollView(
+  controller: _pageScrollCtrl,
+
         padding: const EdgeInsets.all(16),
         child: Card(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

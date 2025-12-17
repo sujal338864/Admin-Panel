@@ -221,55 +221,60 @@ async function upsertImages(client, productId, row) {
 }
 
 // ------------------------ SPECS (FIXED) ------------------------
-// ------------------------ SPECS (FIXED) ------------------------
-async function upsertSpecs(client, productId, row) {
-  // Remove existing specs for product
+async function upsertSpecs(client, productId, row, specFieldMap) {
+  // Remove existing specs
   await client.query(
     `DELETE FROM product_specification_values WHERE product_id = $1`,
     [productId]
   );
 
   for (const key of Object.keys(row)) {
-    // Excel columns must start with Spec_
     if (!key.startsWith("Spec_")) continue;
 
     const value = safeString(row[key]);
     if (!value) continue;
 
-    // Convert Spec_Color → Color
-    const fieldName = key
+    // Spec_ModelName → modelname
+    const fieldKey = key
       .replace("Spec_", "")
-      .replace(/_/g, " ")
-      .trim();
+      .replace(/_/g, "")
+      .toLowerCase();
 
-    // 🔍 Find matching field
-    const fieldRes = await client.query(
-      `
-      SELECT field_id
-      FROM specification_fields
-      WHERE name ILIKE $1
-      LIMIT 1
-      `,
-      [fieldName]
-    );
+    const fieldId = specFieldMap[fieldKey];
 
-    if (!fieldRes.rows.length) {
-      console.warn(`⚠ Spec field not found, skipped: ${fieldName}`);
+    if (!fieldId) {
+      // ❌ REMOVE THIS LOG AFTER YOU VERIFY
+      console.warn(`⚠ Spec field not found, skipped: ${fieldKey}`);
       continue;
     }
 
-    const fieldId = fieldRes.rows[0].field_id;
-
-    // ✅ Insert spec value
     await client.query(
       `
       INSERT INTO product_specification_values
       (product_id, field_id, value)
-      VALUES ($1, $2, $3)
+      VALUES ($1,$2,$3)
       `,
       [productId, fieldId, value]
     );
   }
+}
+
+// ------------------------ LOAD SPEC FIELD MAP ------------------------
+async function loadSpecFieldMap(client) {
+  const res = await client.query(
+    `SELECT field_id, name FROM specification_fields`
+  );
+
+  const map = {};
+  for (const r of res.rows) {
+    const key = r.name
+      .replace(/\s+/g, "")   // remove spaces
+      .replace(/_/g, "")     // remove underscores
+      .toLowerCase();
+
+    map[key] = r.field_id;
+  }
+  return map;
 }
 
 
@@ -286,48 +291,51 @@ router.post("/bulk-upload", upload.single("file"), async (req, res) => {
     const rows = xlsx.utils.sheet_to_json(sheet, { defval: "" });
 
     await client.query("BEGIN");
-
+const specFieldMap = await loadSpecFieldMap(client);
     const parentCache = {};
 
-    for (const row of rows) {
-      const sku = safeString(row["SKU"]);
-      const parentSku = safeString(row["ParentSKU"]);
-      if (!sku) continue;
+   for (const row of rows) {
+  const sku = safeString(row["SKU"]);
+  const parentSku = safeString(row["ParentSKU"]);
+  if (!sku) continue;
 
-      const isParent = !parentSku;
+  const isParent = !parentSku;
 
-      const categoryId = await ensureCategoryId(client, row["CategoryName"]);
-      const subcategoryId = await ensureSubcategoryId(
-        client,
-        categoryId,
-        row["SubcategoryName"]
-      );
-      const brandId = await ensureBrandId(
-        client,
-        subcategoryId,
-        row["BrandName"]
-      );
+  const categoryId = await ensureCategoryId(client, row["CategoryName"]);
+  const subcategoryId = await ensureSubcategoryId(
+    client,
+    categoryId,
+    row["SubcategoryName"]
+  );
+  const brandId = await ensureBrandId(
+    client,
+    subcategoryId,
+    row["BrandName"]
+  );
 
-      let parentProduct = null;
-      if (!isParent) {
-        parentProduct = parentCache[parentSku];
-        if (!parentProduct)
-          throw new Error(`Parent SKU not found: ${parentSku}`);
-      }
+  let parentProduct = null;
+  if (!isParent) {
+    parentProduct = parentCache[parentSku];
+    if (!parentProduct)
+      throw new Error(`Parent SKU not found: ${parentSku}`);
+  }
 
-      const product = await upsertProduct(client, row, {
-        isParent,
-        parentProduct,
-        categoryId,
-        subcategoryId,
-        brandId,
-      });
+  const product = await upsertProduct(client, row, {
+    isParent,
+    parentProduct,
+    categoryId,
+    subcategoryId,
+    brandId,
+  });
 
-      if (isParent) parentCache[sku] = product;
+  if (isParent) parentCache[sku] = product;
 
-      await upsertImages(client, product.product_id, row);
-      await upsertSpecs(client, product.product_id, row);
-    }
+  await upsertImages(client, product.product_id, row);
+
+  // ✅ THIS IS THE LINE
+  await upsertSpecs(client, product.product_id, row, specFieldMap);
+}
+
 
     await client.query("COMMIT");
     res.json({ success: true, message: "Bulk upload completed" });

@@ -745,29 +745,24 @@ router.post("/spec/field", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-
+// GET /products/spec/product/:productId
 router.get("/spec/product/:productId", async (req, res) => {
-  try {
-    const productId = Number(req.params.productId);
-    if (!productId) {
-      return res.status(400).json({ error: "Invalid productId" });
-    }
+  const productId = Number(req.params.productId);
 
-    const q = await pool.query(
-      `
-      SELECT product_id, field_id, value
-      FROM product_specification_values
-      WHERE product_id = $1
-      `,
-      [productId]
-    );
+  const { rows } = await pool.query(
+    `
+    SELECT
+      field_id AS "FieldID",
+      value AS "Value"
+    FROM product_spec_values
+    WHERE product_id = $1
+    `,
+    [productId]
+  );
 
-    res.json(q.rows);
-  } catch (e) {
-    console.error("❌ spec/product error:", e);
-    res.status(500).json({ error: e.message });
-  }
+  res.json(rows);
 });
+
 
 
 router.get("/spec/sections-with-fields", async (req, res) => {
@@ -799,27 +794,24 @@ router.get("/spec/sections-with-fields", async (req, res) => {
   }
 });
 
-
+// POST /products/spec/product/save
 router.post("/spec/product/save", async (req, res) => {
+  const { productId, specs } = req.body;
+
+  if (!productId || !Array.isArray(specs)) {
+    return res.status(400).json({ success: false });
+  }
+
   try {
-    const { productId, specs } = req.body;
-    if (!productId) {
-      return res.status(400).json({ error: "productId required" });
-    }
-
-    await pool.query(
-      "DELETE FROM product_specification_values WHERE product_id = $1",
-      [productId]
-    );
-
     for (const s of specs) {
-      if (!s.value || s.value.trim() === "") continue;
-
       await pool.query(
         `
-        INSERT INTO product_specification_values
-        (product_id, field_id, value)
+        INSERT INTO product_spec_values (product_id, field_id, value)
         VALUES ($1, $2, $3)
+        ON CONFLICT (product_id, field_id)
+        DO UPDATE SET
+          value = EXCLUDED.value,
+          updated_at = NOW()
         `,
         [productId, s.fieldId, s.value]
       );
@@ -827,9 +819,10 @@ router.post("/spec/product/save", async (req, res) => {
 
     res.json({ success: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ success: false, error: e.message });
   }
 });
+
 
 
 router.delete("/spec/section/:id", async (req, res) => {

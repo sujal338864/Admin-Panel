@@ -26,7 +26,8 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
 
     try {
       final response = await http.post(
-      Uri.parse('http://localhost:3001/api/admin/login'),
+      Uri.parse(
+        'https://velorex-admin-backend.onrender.com/api/admin/login',
 
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({

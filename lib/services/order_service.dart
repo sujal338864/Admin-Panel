@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 class AdminOrderService {
 static const String baseUrl =
-  "http://localhost:3001/api/admin/orders";
+    "https://velorex-admin-backend.onrender.com/api/admin/orders";
 
 
 

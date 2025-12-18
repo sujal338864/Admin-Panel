@@ -22,6 +22,7 @@ class _SubcategoriesPageState extends State<SubcategoriesPage> {
   }
 
   // ================= FETCH DATA =================
+ // ================= FETCH DATA =================
   Future<void> loadData() async {
     setState(() => isLoading = true);
     try {
@@ -29,19 +30,20 @@ class _SubcategoriesPageState extends State<SubcategoriesPage> {
 
 categories = rawCategories.map<Map<String, dynamic>>((c) => {
   'CategoryID': c['CategoryID'] ?? c['category_id'],
-  'Name': c['Name'] ?? c['name'] ?? 'Unnamed Category',
+'Name': c['Name'] ?? c['name'] ?? '',
+
 }).toList();
 
 
      final subs = await ApiService.getSubcategories();
-
 subcategories = subs.map<Map<String, dynamic>>((s) => {
-  'SubcategoryID': s['subcategory_id'],
-  'Name': s['name'] ?? 'Unnamed',
-  'CategoryID': s['category_id'],
-  'CategoryName': s['category_name'] ?? 'Unknown',
-  'CreatedAt': s['created_at'],
+  'SubcategoryID': s['SubcategoryID'] ?? s['subcategory_id'],
+  'Name': s['Name'] ?? s['name'] ?? '',
+  'CategoryID': s['CategoryID'] ?? s['category_id'],
+  'CategoryName': s['CategoryName'] ?? s['category_name'] ?? '',
+  'CreatedAt': s['CreatedAt'] ?? s['created_at'],
 }).toList();
+
 
     } catch (e) {
       categories = [];

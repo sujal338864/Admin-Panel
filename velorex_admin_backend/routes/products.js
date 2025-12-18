@@ -745,22 +745,26 @@ router.post("/spec/field", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
 // GET /products/spec/product/:productId
 router.get("/spec/product/:productId", async (req, res) => {
   const productId = Number(req.params.productId);
 
   const { rows } = await pool.query(
     `
-    SELECT
-      field_id AS "FieldID",
-      value AS "Value"
+    SELECT field_id, value
     FROM product_spec_values
     WHERE product_id = $1
     `,
     [productId]
   );
 
-  res.json(rows);
+  const result = {};
+  for (const r of rows) {
+    result[r.field_id] = r.value;
+  }
+
+  res.json(result); // ✅ MAP
 });
 
 
@@ -794,34 +798,41 @@ router.get("/spec/sections-with-fields", async (req, res) => {
   }
 });
 
-// POST /products/spec/product/save
 router.post("/spec/product/save", async (req, res) => {
   const { productId, specs } = req.body;
-
   if (!productId || !Array.isArray(specs)) {
     return res.status(400).json({ success: false });
   }
 
+  const client = await pool.connect();
   try {
+    await client.query("BEGIN");
+
+    await client.query(
+      "DELETE FROM product_spec_values WHERE product_id = $1",
+      [productId]
+    );
+
     for (const s of specs) {
-      await pool.query(
+      await client.query(
         `
         INSERT INTO product_spec_values (product_id, field_id, value)
         VALUES ($1, $2, $3)
-        ON CONFLICT (product_id, field_id)
-        DO UPDATE SET
-          value = EXCLUDED.value,
-          updated_at = NOW()
         `,
         [productId, s.fieldId, s.value]
       );
     }
 
+    await client.query("COMMIT");
     res.json({ success: true });
   } catch (e) {
+    await client.query("ROLLBACK");
     res.status(500).json({ success: false, error: e.message });
+  } finally {
+    client.release();
   }
 });
+
 
 
 

@@ -1,12 +1,10 @@
 // ignore_for_file: avoid_print, use_build_context_synchronously
 
-import 'package:admin_panel/services/api_service.dart';
 import 'package:flutter/material.dart';
+import 'package:admin_panel/services/api_service.dart';
 
 class VariantsPage extends StatefulWidget {
   const VariantsPage({super.key});
-
-
 
   @override
   State<VariantsPage> createState() => _VariantsPageState();
@@ -21,34 +19,35 @@ class _VariantsPageState extends State<VariantsPage> {
     super.initState();
     fetchVariants();
   }
+Future<void> fetchVariants() async {
+  setState(() => isLoading = true);
+  try {
+    final data = await ApiService.getVariants();
 
-  Future<void> fetchVariants() async {
-    setState(() => isLoading = true);
-    try {
-      final data = await ApiService.getVariants();
-      variants = List<Map<String, dynamic>>.from(data);
-    } catch (e) {
-      variants = [];
-      print('❌ Error fetching variants: $e');
-    }
-    setState(() => isLoading = false);
+    variants = data.map<Map<String, dynamic>>((v) => {
+          'VariantID': v['VariantID'],
+          'Variant': v['Variant']?.toString() ?? '',
+          'VariantType': v['VariantType']?.toString() ?? '—',
+          'VariantTypeID': v['VariantTypeID'],
+          'AddedDate': v['AddedDate'],
+        }).toList();
+  } catch (e) {
+    variants = [];
+    debugPrint('❌ Error fetching variants: $e');
   }
-
-  Future<void> deleteVariant(int id) async {
-    try {
-      await ApiService.deleteVariant(id);
-      fetchVariants();
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text("Failed: $e")));
-    }
-  }
+  setState(() => isLoading = false);
+}
 
   void _openAddEdit([Map<String, dynamic>? variant]) async {
     await showDialog(
       context: context,
       builder: (_) => AddEditVariantDialog(variant: variant),
     );
+    fetchVariants();
+  }
+
+  Future<void> deleteVariant(int id) async {
+    await ApiService.deleteVariant(id);
     fetchVariants();
   }
 
@@ -66,16 +65,13 @@ class _VariantsPageState extends State<VariantsPage> {
                     children: [
                       const Text(
                         'Variants',
-                        style:
-                            TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                       ),
                       const Spacer(),
                       IconButton(
-                        icon: const Icon(Icons.refresh, color: Colors.blue),
+                        icon: const Icon(Icons.refresh),
                         onPressed: fetchVariants,
-                        tooltip: 'Refresh',
                       ),
-                      const SizedBox(width: 8),
                       ElevatedButton.icon(
                         onPressed: () => _openAddEdit(),
                         icon: const Icon(Icons.add),
@@ -83,46 +79,47 @@ class _VariantsPageState extends State<VariantsPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
-                  Expanded(
-                    child: variants.isEmpty
-                        ? const Center(child: Text('No variants found'))
-                        : SingleChildScrollView(
-                            scrollDirection: Axis.vertical,
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: DataTable(
-                                columns: const [
-                                  DataColumn(label: Text('Variant')),
-                                  DataColumn(label: Text('Variant Type')),
-                                  DataColumn(label: Text('Added Date')),
-                                  DataColumn(label: Text('Edit')),
-                                  DataColumn(label: Text('Delete')),
-                                ],
-                                rows: variants.map((variant) {
-                                  final id = variant['VariantID'] ?? 0;
-                                  return DataRow(cells: [
-                                    DataCell(Text(variant['Variant'] ?? '')),
-                                    DataCell(Text(variant['VariantType'] ?? '')),
-                                    DataCell(Text(variant['AddedDate'] ?? '')),
-                                    DataCell(
-                                      IconButton(
-                                        icon: const Icon(Icons.edit, color: Colors.blue),
-                                        onPressed: () => _openAddEdit(variant),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      IconButton(
-                                        icon: const Icon(Icons.delete, color: Colors.red),
-                                        onPressed: () => deleteVariant(id),
-                                      ),
-                                    ),
-                                  ]);
-                                }).toList(),
-                              ),
+                  const SizedBox(height: 16),
+                 Expanded(
+  child: variants.isEmpty
+      ? const Center(child: Text('No variants found'))
+      : SingleChildScrollView(           // 🔥 Vertical Scroll
+          child: SingleChildScrollView(  // 🔥 Horizontal Scroll
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+
+                              columns: const [
+                                DataColumn(label: Text('Variant')),
+                                DataColumn(label: Text('Variant Type')),
+                                DataColumn(label: Text('Added Date')),
+                                DataColumn(label: Text('Edit')),
+                                DataColumn(label: Text('Delete')),
+                              ],
+                              rows: variants.map((v) {
+                                return DataRow(cells: [
+                                  DataCell(Text(v['Variant'])),
+                                  DataCell(Text(v['VariantType'])),
+                                  DataCell(Text(
+                                    v['AddedDate'] != null
+                                        ? v['AddedDate']
+                                            .toString()
+                                            .substring(0, 10)
+                                        : '',
+                                  )),
+                                  DataCell(IconButton(
+                                    icon: const Icon(Icons.edit, color: Colors.blue),
+                                    onPressed: () => _openAddEdit(v),
+                                  )),
+                                  DataCell(IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.red),
+                                    onPressed: () =>
+                                        deleteVariant(v['VariantID']),
+                                  )),
+                                ]);
+                              }).toList(),
                             ),
                           ),
-                  ),
+                  ), )
                 ],
               ),
       ),
@@ -130,7 +127,10 @@ class _VariantsPageState extends State<VariantsPage> {
   }
 }
 
-// ---------------- ADD / EDIT DIALOG ----------------
+// =======================================================
+// ADD / EDIT DIALOG
+// =======================================================
+
 class AddEditVariantDialog extends StatefulWidget {
   final Map<String, dynamic>? variant;
   const AddEditVariantDialog({super.key, this.variant});
@@ -142,68 +142,51 @@ class AddEditVariantDialog extends StatefulWidget {
 class _AddEditVariantDialogState extends State<AddEditVariantDialog> {
   late TextEditingController _variantController;
   List<Map<String, dynamic>> variantTypes = [];
-  bool isLoading = true;
   int? selectedTypeId;
+  bool isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _variantController = TextEditingController(
-      text: widget.variant != null ? widget.variant!['Variant'] : '',
-    );
+    _variantController =
+        TextEditingController(text: widget.variant?['Variant'] ?? '');
+    selectedTypeId = widget.variant?['VariantTypeID'];
     loadVariantTypes();
   }
+Future<void> loadVariantTypes() async {
+  try {
+    final data = await ApiService.getVariantTypes();
 
-  Future<void> loadVariantTypes() async {
-    try {
-      final data = await ApiService.getVariantTypes();
-      variantTypes = List<Map<String, dynamic>>.from(data);
+    variantTypes = data.map<Map<String, dynamic>>((t) => {
+          'VariantTypeID': t['variant_type_id'],
+          'VariantName': t['variant_name'],
+        }).toList();
 
-      if (widget.variant != null) {
-        // find typeId that matches the VariantType name
-final match = variantTypes.firstWhere( 
-  (t) => t['VariantName'].toString().toLowerCase() ==
-         widget.variant!['VariantType'].toString().toLowerCase(),
-  orElse: () => {},
-);
-
-        if (match.isNotEmpty) {
-          selectedTypeId = match['VariantTypeID'];
-        }
-      }
-    } catch (e) {
-      variantTypes = [];
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("❌ Failed to load types: $e")),
-      );
+    if (!variantTypes.any((t) => t['VariantTypeID'] == selectedTypeId)) {
+      selectedTypeId = null;
     }
-    setState(() => isLoading = false);
+  } catch (e) {
+    variantTypes = [];
+    selectedTypeId = null;
   }
 
-  Future<void> save() async {
-    final name = _variantController.text.trim();
-    if (name.isEmpty || selectedTypeId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("⚠️ Please enter name & select type")),
-      );
-      return;
-    }
+  if (mounted) setState(() => isLoading = false);
+}
 
-    try {
-      if (widget.variant == null) {
-        await ApiService.addVariant(name, selectedTypeId!);
-      } else {
-        await ApiService.editVariant(
-          widget.variant!['VariantID'],
-          name,
-          selectedTypeId!,
-        );
-      }
-      Navigator.pop(context);
-    } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('❌ Failed: $e')));
+  Future<void> save() async {
+    if (_variantController.text.isEmpty || selectedTypeId == null) return;
+
+    if (widget.variant == null) {
+      await ApiService.addVariant(
+          _variantController.text, selectedTypeId!);
+    } else {
+      await ApiService.editVariant(
+        widget.variant!['VariantID'],
+        _variantController.text,
+        selectedTypeId!,
+      );
     }
+    Navigator.pop(context);
   }
 
   @override
@@ -211,39 +194,38 @@ final match = variantTypes.firstWhere(
     return AlertDialog(
       title: Text(widget.variant == null ? 'Add Variant' : 'Edit Variant'),
       content: isLoading
-          ? const SizedBox(
-              height: 80,
-              child: Center(child: CircularProgressIndicator()),
-            )
+          ? const CircularProgressIndicator()
           : Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: _variantController,
-                  decoration: const InputDecoration(labelText: 'Variant Name'),
+                  decoration:
+                      const InputDecoration(labelText: 'Variant Name'),
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  value: selectedTypeId,
-                  items: variantTypes.map((type) {
-                    return DropdownMenuItem<int>(
-                      value: type['VariantTypeID'],
-                      child: Text(type['VariantName']),
-                    );
-                  }).toList(),
-                  onChanged: (value) =>
-                      setState(() => selectedTypeId = value),
-                  decoration: const InputDecoration(labelText: 'Variant Type'),
-                ),
+              DropdownButtonFormField<int>(
+  value: selectedTypeId,
+  items: variantTypes.map((t) {
+    return DropdownMenuItem<int>(
+      value: t['VariantTypeID'],
+      child: Text(
+        t['VariantName']?.toString() ?? 'Unnamed',
+      ),
+    );
+  }).toList(),
+  onChanged: (v) => setState(() => selectedTypeId = v),
+  decoration: const InputDecoration(labelText: 'Variant Type'),
+),
+
+
               ],
             ),
       actions: [
         TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel')),
-        ElevatedButton(
-            onPressed: isLoading ? null : save,
-            child: Text(widget.variant == null ? 'Add' : 'Save')),
+        ElevatedButton(onPressed: save, child: const Text('Save')),
       ],
     );
   }

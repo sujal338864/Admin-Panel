@@ -1,4 +1,3 @@
-
 // ignore_for_file: avoid_print, use_build_context_synchronously
 
 import 'dart:io';
@@ -18,7 +17,13 @@ class CategoriesPage extends StatefulWidget {
 
 class _CategoriesPageState extends State<CategoriesPage> {
   List<Map<String, dynamic>> categories = [];
+  List<Map<String, dynamic>> allCategories = [];
+
   bool isLoading = false;
+
+  // 🔍 SEARCH STATE
+  bool isSearching = false;
+  final TextEditingController searchController = TextEditingController();
 
   @override
   void initState() {
@@ -30,13 +35,28 @@ class _CategoriesPageState extends State<CategoriesPage> {
     setState(() => isLoading = true);
     try {
       final data = await ApiService.getCategories();
-      categories = List<Map<String, dynamic>>.from(data);
+      allCategories = List<Map<String, dynamic>>.from(data);
+      categories = allCategories;
       debugPrint('✅ Categories loaded: ${categories.length}');
     } catch (e) {
       debugPrint('❌ Fetch categories error: $e');
       categories = [];
+      allCategories = [];
     }
     if (mounted) setState(() => isLoading = false);
+  }
+
+  // 🔍 SEARCH FILTER
+  void _filterCategories(String query) {
+    final q = query.toLowerCase();
+    setState(() {
+      categories = allCategories.where((cat) {
+        final name = (cat['name'] ?? cat['Name'] ?? '')
+            .toString()
+            .toLowerCase();
+        return name.contains(q);
+      }).toList();
+    });
   }
 
   Future<void> deleteCategory(int id) async {
@@ -62,8 +82,30 @@ class _CategoriesPageState extends State<CategoriesPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Categories'),
+        title: isSearching
+            ? TextField(
+                controller: searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search categories...',
+                  border: InputBorder.none,
+                ),
+                onChanged: _filterCategories,
+              )
+            : const Text('Categories'),
         actions: [
+          IconButton(
+            icon: Icon(isSearching ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                if (isSearching) {
+                  searchController.clear();
+                  categories = allCategories;
+                }
+                isSearching = !isSearching;
+              });
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: fetchCategories,
@@ -109,7 +151,6 @@ class _CategoriesPageState extends State<CategoriesPage> {
                                       '')
                                   .toString();
 
-                          // 🔥 SUPABASE IMAGE FIX (FINAL)
                           final dynamic rawImage =
                               cat['image_url'] ??
                               cat['ImageUrl'] ??
@@ -165,7 +206,7 @@ class _CategoriesPageState extends State<CategoriesPage> {
 }
 
 /* ============================================================
-   ADD / EDIT CATEGORY DIALOG
+   ADD / EDIT CATEGORY DIALOG (UNCHANGED)
    ============================================================ */
 
 class AddEditCategoryDialog extends StatefulWidget {
@@ -223,8 +264,11 @@ class _AddEditCategoryDialogState extends State<AddEditCategoryDialog> {
           'categories/${DateTime.now().millisecondsSinceEpoch}.png';
 
       if (kIsWeb && _pickedImageBytes != null) {
-        await bucket.uploadBinary(fileName, _pickedImageBytes!,
-            fileOptions: const FileOptions(contentType: 'image/png'));
+        await bucket.uploadBinary(
+          fileName,
+          _pickedImageBytes!,
+          fileOptions: const FileOptions(contentType: 'image/png'),
+        );
       } else if (_pickedImageFile != null) {
         await bucket.uploadBinary(
           fileName,

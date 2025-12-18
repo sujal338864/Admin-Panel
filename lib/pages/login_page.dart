@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously, avoid_print, depend_on_referenced_packages
+// ignore_for_file: use_build_context_synchronously, avoid_print
 
 import 'dart:convert';
 import 'package:admin_panel/pages/dashboard_page.dart';
@@ -26,9 +26,9 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
 
     try {
       final response = await http.post(
-      Uri.parse(
-        'https://velorex-admin-backend.onrender.com/api/admin/login',
-
+        Uri.parse(
+          'https://velorex-admin-backend.onrender.com/api/admin/login',
+        ),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'username': username.trim(),
@@ -36,41 +36,37 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
         }),
       );
 
-      setState(() => isLoading = false);
-      print('🟢 Response: ${response.body}');
-
       final data = jsonDecode(response.body);
 
-      // ✅ Success condition: checks multiple possibilities
-      if (response.statusCode == 200 &&
-          (data['success'] == true ||
-              data['message'] == "✅ Login successful" ||
-              data['message'].toString().contains("Login successful"))) {
+      if (response.statusCode == 200 && data['token'] != null) {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('auth_token', data['token'] ?? '');
+        await prefs.setString('auth_token', data['token']);
+
+        if (!mounted) return;
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('✅ Login successful')),
         );
 
-        // ✅ Navigate to AdminHomePage
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) =>  AdminHomePage()),
-          );
-        }
+         Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => AdminHomePage()),
+      );
       } else {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(data['message'] ?? 'Invalid username or password')),
+            content: Text(data['message'] ?? 'Invalid credentials'),
+          ),
         );
       }
     } catch (e) {
-      setState(() => isLoading = false);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
+        SnackBar(content: Text('Login failed: $e')),
       );
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -104,10 +100,10 @@ class _AdminLoginPageState extends State<AdminLoginPage> {
                 onPressed: isLoading ? null : _login,
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size(double.infinity, 48),
-                  backgroundColor: const Color.fromARGB(255, 17, 17, 17),
+                  backgroundColor: Colors.black,
                 ),
                 child: isLoading
-                    ? const CircularProgressIndicator(color: Color.fromARGB(255, 243, 236, 236))
+                    ? const CircularProgressIndicator(color: Colors.white)
                     : const Text('Login', style: TextStyle(fontSize: 18)),
               ),
             ],

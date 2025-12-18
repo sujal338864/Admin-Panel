@@ -12,6 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class ApiService {
  static const String baseUrl =
     "https://velorex-admin-backend.onrender.com/api";
+
   static List<Map<String, dynamic>>? _cachedCategories;
 
 
@@ -1250,6 +1251,7 @@ static Future<bool> addPoster({
     headers: {'Content-Type': 'application/json'},
     body: body,
   );
+print("🟡 ADD BODY => $body");
 
   debugPrint('Add poster response: ${res.body}');
   return res.statusCode == 201 || res.statusCode == 200;
@@ -1296,19 +1298,25 @@ static Future<bool> deletePoster(int id) async {
 
 
 // ------------------- 🔔 NOTIFICATIONS -------------------
-  // 🔹 Get notifications
-  static Future<List<Map<String, dynamic>>> getNotifications() async {
-    final response = await http.get(Uri.parse('$baseUrl/notifications'));
 
-    if (response.statusCode == 200) {
-      final List data = json.decode(response.body);
-      return data.cast<Map<String, dynamic>>();
-    } else {
-      throw Exception("Failed to load notifications");
-    }
+// 🔹 Get notifications
+static Future<List<Map<String, dynamic>>> getNotifications() async {
+  final response = await http.get(Uri.parse('$baseUrl/notifications'));
+
+  if (response.statusCode == 200) {
+    final List data = json.decode(response.body);
+    return data.cast<Map<String, dynamic>>();
+  } else {
+    throw Exception("Failed to load notifications");
   }
+}
 
- static Future<bool> addNotification(String title, String message, String? imageUrl) async {
+// 🔹 Add notification
+static Future<bool> addNotification(
+  String title,
+  String message,
+  String? imageUrl,
+) async {
   try {
     final url = Uri.parse('$baseUrl/notifications');
 
@@ -1318,7 +1326,7 @@ static Future<bool> deletePoster(int id) async {
     };
 
     if (imageUrl != null && imageUrl.isNotEmpty) {
-      body['imageUrl'] = imageUrl;
+      body['image_url'] = imageUrl; // ✅ FIXED
     }
 
     final response = await http.post(
@@ -1340,11 +1348,39 @@ static Future<bool> deletePoster(int id) async {
   }
 }
 
-  // 🔹 Delete / deactivate notification
-  static Future<bool> deleteNotification(int id) async {
-    final response = await http.delete(Uri.parse('$baseUrl/notifications/$id'));
-    print("Delete Notification → ${response.statusCode}: ${response.body}");
-    return response.statusCode == 200;
+// 🔹 Update notification
+static Future<bool> updateNotification(
+  int id,
+  String title,
+  String message,
+  String imageUrl,
+) async {
+  try {
+    final res = await http.put(
+      Uri.parse('$baseUrl/notifications/$id'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        "title": title,
+        "message": message,
+        "image_url": imageUrl.isEmpty ? null : imageUrl,
+      }),
+    );
+
+    debugPrint('🟡 Update notification response: ${res.body}');
+    return res.statusCode == 200;
+  } catch (e) {
+    debugPrint('❌ updateNotification error: $e');
+    return false;
   }
+}
+
+// 🔹 Delete / deactivate notification
+static Future<bool> deleteNotification(int id) async {
+  final response =
+      await http.delete(Uri.parse('$baseUrl/notifications/$id'));
+  print("Delete Notification → ${response.statusCode}: ${response.body}");
+  return response.statusCode == 200;
+}
+
 }
 

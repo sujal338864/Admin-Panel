@@ -26,13 +26,6 @@ class _PostersPageState extends State<PostersPage> {
     fetchPosters();
   }
 
-  // ✅ Helper to form full Supabase image URL
-  String getPosterImageUrl(String imageUrl) {
-    if (imageUrl.isEmpty) return '';
-    if (imageUrl.startsWith('http')) return imageUrl;
-    return "https://zyryndjeojrzvoubsqsg.supabase.co/storage/v1/object/public/poster/$imageUrl";
-  }
-
   Future<void> fetchPosters() async {
     setState(() => isLoading = true);
     try {
@@ -113,33 +106,35 @@ class _PostersPageState extends State<PostersPage> {
                             ],
                             rows: posters.map((p) {
                               // ✅ Handle both single and multiple image cases
-                              final images = p['imageUrls'] is List
-                                  ? p['imageUrls']
-                                  : [p['imageUrl'] ?? ''];
+                            final images = [
+  p['image_url']?.toString() ?? ''
+];
+
 
                               return DataRow(
                                 cells: [
                                   DataCell(Text(p['title'] ?? '')),
-                                  DataCell(
-                                    Row(
-                                      children: images.take(3).map<Widget>((url) {
-                                        final fullUrl = getPosterImageUrl(url);
-                                        return Padding(
-                                          padding: const EdgeInsets.all(4.0),
-                                          child: fullUrl.isNotEmpty
-                                              ? Image.network(
-                                                  fullUrl,
-                                                  width: 60,
-                                                  height: 60,
-                                                  fit: BoxFit.cover,
-                                                  errorBuilder: (context, error, stackTrace) =>
-                                                      const Icon(Icons.broken_image),
-                                                )
-                                              : const Icon(Icons.broken_image),
-                                        );
-                                      }).toList(),
-                                    ),
-                                  ),
+                                 DataCell(
+  Builder(
+    builder: (_) {
+      final imageUrl = p['image_url']?.toString() ?? '';
+
+      if (imageUrl.isEmpty) {
+        return const Icon(Icons.broken_image);
+      }
+
+      return Image.network(
+        imageUrl,
+        width: 60,
+        height: 60,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) =>
+            const Icon(Icons.broken_image),
+      );
+    },
+  ),
+),
+
                                   DataCell(
                                     Row(
                                       children: [

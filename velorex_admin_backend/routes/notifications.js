@@ -1,87 +1,102 @@
-// routes/notifications.js
 const express = require("express");
 const router = express.Router();
 const pool = require("../models/db");
 
 /* ===============================
-   CREATE Notification
+   CREATE
    =============================== */
 router.post("/", async (req, res) => {
   try {
-    const { title, message, imageUrl } = req.body;
+    const { title, message, image_url } = req.body;
 
-    if (!title || !message) {
-      return res.status(400).json({ error: "Title and message are required" });
-    }
+    if (!title || !message)
+      return res.status(400).json({ error: "Required fields missing" });
 
     await pool.query(
       `
       INSERT INTO notifications
-        (title, description, image_url, send_date, is_active, created_at)
-      VALUES
-        ($1, $2, $3, NOW(), true, NOW())
+      (title, description, image_url, send_date, is_active, created_at)
+      VALUES ($1, $2, $3, NOW(), true, NOW())
       `,
-      [title, message, imageUrl || null]
+      [title, message, image_url || null]
     );
+console.log("🔥 POST /notifications BODY:", req.body);
 
-    res.status(201).json({ message: "✅ Notification created successfully" });
-  } catch (err) {
-    console.error("❌ Error creating notification:", err);
-    res.status(500).json({ error: err.message });
+    res.status(201).json({ success: true });
+  } catch (e) {
+    console.error("❌ CREATE:", e);
+    res.status(500).json({ error: e.message });
   }
 });
 
 /* ===============================
-   GET all active notifications
+   UPDATE
    =============================== */
-router.get("/", async (req, res) => {
+router.put("/:id", async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
-        notification_id AS "NotificationID",
-        title           AS "Title",
-        description     AS "Description",
-        image_url       AS "ImageUrl",
-        send_date       AS "SendDate",
-        is_active       AS "IsActive",
-        created_at      AS "CreatedAt",
-        user_id         AS "UserID"
-      FROM notifications
-      ORDER BY notification_id DESC
-    `);
-
-    res.status(200).json(result.rows);
-  } catch (error) {
-    console.error("❌ Error fetching notifications:", error);
-    res.status(500).json({ error: "Failed to fetch notifications" });
-  }
-});
-
-/* ===============================
-   DELETE (Deactivate Notification)
-   =============================== */
-router.delete("/:id", async (req, res) => {
-  try {
+    const { title, message, image_url } = req.body;
     const { id } = req.params;
 
     await pool.query(
       `
       UPDATE notifications
-      SET is_active = false
-      WHERE notification_id = $1
+      SET title=$1, description=$2, image_url=$3, updated_at=NOW()
+      WHERE notification_id=$4
       `,
-      [id]
+      [title, message, image_url || null, id]
     );
 
-    res.json({ message: "🗑 Notification deactivated successfully" });
-  } catch (err) {
-    console.error("❌ Error deleting notification:", err);
-    res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  } catch (e) {
+    console.error("❌ UPDATE:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* ===============================
+   GET
+   =============================== */
+router.get("/", async (_, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        notification_id,
+        title,
+        description,
+        image_url,
+        send_date,
+        is_active,
+        created_at
+      FROM notifications
+      WHERE is_active=true
+      ORDER BY notification_id DESC
+    `);
+
+    res.json(rows);
+  } catch (e) {
+    console.error("❌ FETCH:", e);
+    res.status(500).json({ error: "Fetch failed" });
+  }
+});
+
+/* ===============================
+   DELETE (soft)
+   =============================== */
+router.delete("/:id", async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE notifications SET is_active=false WHERE notification_id=$1`,
+      [req.params.id]
+    );
+
+    res.json({ success: true });
+  } catch (e) {
+    console.error("❌ DELETE:", e);
+    res.status(500).json({ error: e.message });
   }
 });
 
 module.exports = router;
-
 
 
 

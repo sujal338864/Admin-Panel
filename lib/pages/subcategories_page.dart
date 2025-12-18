@@ -13,7 +13,16 @@ class SubcategoriesPage extends StatefulWidget {
 class _SubcategoriesPageState extends State<SubcategoriesPage> {
   List<Map<String, dynamic>> categories = [];
   List<Map<String, dynamic>> subcategories = [];
+  List<Map<String, dynamic>> allSubcategories = [];
+
   bool isLoading = false;
+
+  // 🔍 SEARCH
+  bool isSearching = false;
+  final TextEditingController searchController = TextEditingController();
+
+  // 🏷 CATEGORY FILTER
+  int? selectedCategoryId;
 
   @override
   void initState() {
@@ -26,7 +35,11 @@ class _SubcategoriesPageState extends State<SubcategoriesPage> {
   Future<void> loadData() async {
     setState(() => isLoading = true);
     try {
-     final rawCategories = await ApiService.getCategories();
+      final rawCategories = await ApiService.getCategories();
+      categories = rawCategories.map<Map<String, dynamic>>((c) => {
+            'CategoryID': c['CategoryID'] ?? c['category_id'],
+            'Name': c['Name'] ?? c['name'] ?? '',
+          }).toList();
 
 categories = rawCategories.map<Map<String, dynamic>>((c) => {
   'CategoryID': c['CategoryID'] ?? c['category_id'],
@@ -45,12 +58,33 @@ subcategories = subs.map<Map<String, dynamic>>((s) => {
 }).toList();
 
 
+      subcategories = allSubcategories;
+
     } catch (e) {
       categories = [];
       subcategories = [];
-      print('❌ Failed to load subcategories: $e');
+      allSubcategories = [];
+      debugPrint('❌ Failed to load subcategories: $e');
     }
     setState(() => isLoading = false);
+  }
+
+  // 🔍 SEARCH + FILTER LOGIC
+  void _applyFilters() {
+    final q = searchController.text.toLowerCase();
+
+    setState(() {
+      subcategories = allSubcategories.where((sub) {
+        final name =
+            (sub['Name'] ?? '').toString().toLowerCase();
+
+        final matchesSearch = name.contains(q);
+        final matchesCategory = selectedCategoryId == null ||
+            sub['CategoryID'] == selectedCategoryId;
+
+        return matchesSearch && matchesCategory;
+      }).toList();
+    });
   }
 
   // ================= DELETE =================
@@ -81,19 +115,63 @@ subcategories = subs.map<Map<String, dynamic>>((s) => {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Subcategories Management')),
+      appBar: AppBar(
+        title: isSearching
+            ? TextField(
+                controller: searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search subcategories...',
+                  border: InputBorder.none,
+                ),
+                onChanged: (_) => _applyFilters(),
+              )
+            : const Text('Subcategories Management'),
+        actions: [
+          IconButton(
+            icon: Icon(isSearching ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() {
+                if (isSearching) {
+                  searchController.clear();
+                  selectedCategoryId = null;
+                  subcategories = allSubcategories;
+                }
+                isSearching = !isSearching;
+              });
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: loadData,
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            // 🏷 CATEGORY FILTER + ADD
             Row(
               children: [
-                IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.blue),
-                  onPressed: loadData,
-                  tooltip: 'Refresh',
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    value: selectedCategoryId,
+                    hint: const Text('Filter by Category'),
+                    items: categories.map((cat) {
+                      return DropdownMenuItem<int>(
+                        value: cat['CategoryID'],
+                        child: Text(cat['Name']),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      selectedCategoryId = val;
+                      _applyFilters();
+                    },
+                    isExpanded: true,
+                  ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 12),
                 ElevatedButton.icon(
                   onPressed: () => _openAddEdit(),
                   icon: const Icon(Icons.add),
@@ -113,7 +191,8 @@ subcategories = subs.map<Map<String, dynamic>>((s) => {
                             scrollDirection: Axis.horizontal,
                             child: DataTable(
                               columns: const [
-                                DataColumn(label: Text('Subcategory Name')),
+                                DataColumn(
+                                    label: Text('Subcategory Name')),
                                 DataColumn(label: Text('Category')),
                                 DataColumn(label: Text('Added Date')),
                                 DataColumn(label: Text('Edit')),
@@ -124,29 +203,31 @@ subcategories = subs.map<Map<String, dynamic>>((s) => {
                                 return DataRow(cells: [
                                   DataCell(Text(sub['Name'])),
                                   DataCell(Text(sub['CategoryName'])),
-                                DataCell(
-  Text(
-    sub['CreatedAt'] != null
-        ? DateTime.parse(sub['CreatedAt'])
-            .toLocal()
-            .toString()
-            .split(' ')[0]
-        : 'N/A',
-  ),
-),
-
+                                  DataCell(
+                                    Text(
+                                      sub['CreatedAt'] != null
+                                          ? DateTime.parse(
+                                                  sub['CreatedAt'])
+                                              .toLocal()
+                                              .toString()
+                                              .split(' ')[0]
+                                          : 'N/A',
+                                    ),
+                                  ),
                                   DataCell(
                                     IconButton(
                                       icon: const Icon(Icons.edit,
                                           color: Colors.blue),
-                                      onPressed: () => _openAddEdit(sub),
+                                      onPressed: () =>
+                                          _openAddEdit(sub),
                                     ),
                                   ),
                                   DataCell(
                                     IconButton(
                                       icon: const Icon(Icons.delete,
                                           color: Colors.red),
-                                      onPressed: () => deleteSubcategory(id),
+                                      onPressed: () =>
+                                          deleteSubcategory(id),
                                     ),
                                   ),
                                 ]);
@@ -162,7 +243,8 @@ subcategories = subs.map<Map<String, dynamic>>((s) => {
   }
 }
 
-// ================= ADD / EDIT DIALOG =================
+/* ================= ADD / EDIT DIALOG (UNCHANGED) ================= */
+
 class AddEditSubcategoryDialog extends StatefulWidget {
   final Map<String, dynamic>? subcategory;
   final List<Map<String, dynamic>> categories;
@@ -178,7 +260,8 @@ class AddEditSubcategoryDialog extends StatefulWidget {
       _AddEditSubcategoryDialogState();
 }
 
-class _AddEditSubcategoryDialogState extends State<AddEditSubcategoryDialog> {
+class _AddEditSubcategoryDialogState
+    extends State<AddEditSubcategoryDialog> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   int? _selectedCategoryId;
@@ -188,13 +271,15 @@ class _AddEditSubcategoryDialogState extends State<AddEditSubcategoryDialog> {
     super.initState();
     _nameController =
         TextEditingController(text: widget.subcategory?['Name'] ?? '');
-   _selectedCategoryId = widget.subcategory?['CategoryID'] ??
-    (widget.categories.isNotEmpty ? widget.categories.first['CategoryID'] : null);
-
+    _selectedCategoryId = widget.subcategory?['CategoryID'] ??
+        (widget.categories.isNotEmpty
+            ? widget.categories.first['CategoryID']
+            : null);
   }
 
   Future<void> save() async {
-    if (!_formKey.currentState!.validate() || _selectedCategoryId == null) {
+    if (!_formKey.currentState!.validate() ||
+        _selectedCategoryId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a category')),
       );
@@ -249,14 +334,11 @@ class _AddEditSubcategoryDialogState extends State<AddEditSubcategoryDialog> {
               items: widget.categories.map((cat) {
                 return DropdownMenuItem<int>(
                   value: cat['CategoryID'],
-                 child: Text(cat['Name'] ?? 'Unnamed'),
-
+                  child: Text(cat['Name']),
                 );
               }).toList(),
               onChanged: (val) =>
                   setState(() => _selectedCategoryId = val),
-              validator: (v) =>
-                  v == null ? 'Please select a category' : null,
             ),
           ],
         ),
@@ -274,6 +356,7 @@ class _AddEditSubcategoryDialogState extends State<AddEditSubcategoryDialog> {
     );
   }
 }
+
 
 // // ignore_for_file: avoid_print, use_build_context_synchronously
 

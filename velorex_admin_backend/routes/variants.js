@@ -8,14 +8,14 @@ const pool = require("../models/db");
 router.get("/", async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT 
+      SELECT
         v.variant_id        AS "VariantID",
         v.variant           AS "Variant",
-        vt.variant_type     AS "VariantType",
+        vt.variant_name     AS "VariantType",   -- ✅ THIS IS THE FIX
         v.variant_type_id   AS "VariantTypeID",
         v.added_date        AS "AddedDate"
       FROM variants v
-      JOIN variant_types vt
+      LEFT JOIN variant_types vt
         ON vt.variant_type_id = v.variant_type_id
       ORDER BY v.variant_id DESC
     `);
@@ -25,6 +25,8 @@ router.get("/", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
 
 // -------------------------------------------------------------
 // GET: VARIANTS BY TYPE ID

@@ -25,7 +25,14 @@ Future<void> fetchVariantTypes() async {
   setState(() => isLoading = true);
   try {
     final data = await ApiService.getVariantTypes();
-    variantTypes = List<Map<String, dynamic>>.from(data);
+  variantTypes = data.map<Map<String, dynamic>>((v) => {
+  'VariantTypeID': v['VariantTypeID'] ?? v['variant_type_id'],
+  'VariantName': v['VariantName'] ?? v['variant_name'] ?? '',
+  'VariantType': v['VariantType'] ?? v['variant_type'] ?? '',
+'AddedDate': v['AddedDate'] ?? v['added_date'],
+
+}).toList();
+
   } catch (e) {
     variantTypes = [];
     print('❌ Error fetching variant types: $e');

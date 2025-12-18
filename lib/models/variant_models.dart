@@ -14,6 +14,8 @@ class VariantCombo {
   List<dynamic>? extraImages;   // multiple images (File or Uint8List)
   String? imageUrl;
   bool useParentImages;
+  int? childProductId;
+
  // from server when editing
   String? videoUrl; // 🔴 NEW: per-variant YouTube URL
 
@@ -29,6 +31,7 @@ class VariantCombo {
     this.videoUrl,
     this.extraImages,
     this.imageUrl,
+     this.childProductId,
     this.useParentImages = true,
   }) : sku = sku ?? _generateSKUFromSelections(selections);
 

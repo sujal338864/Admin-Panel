@@ -21,24 +21,21 @@ class _CouponPageState extends State<CouponPage> {
 
   Future<void> loadCoupons() async {
     setState(() => isLoading = true);
-
     try {
       final data = await ApiService.getCoupons();
-      setState(() {
-        coupons = List<Map<String, dynamic>>.from(data);
-        isLoading = false;
-      });
+      coupons = List<Map<String, dynamic>>.from(data);
     } catch (e) {
       debugPrint("❌ Failed to load coupons: $e");
-      if (!mounted) return;
-      setState(() => isLoading = false);
     }
+    if (mounted) setState(() => isLoading = false);
   }
 
-  void openAddCouponForm() async {
+  void openAddCouponForm({Map<String, dynamic>? coupon}) async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const AddCouponForm()),
+      MaterialPageRoute(
+        builder: (_) => AddCouponForm(editCoupon: coupon),
+      ),
     );
 
     if (result == true) loadCoupons();
@@ -50,27 +47,23 @@ class _CouponPageState extends State<CouponPage> {
     if (!mounted) return;
 
     if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Coupon deleted')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Coupon deleted')));
       loadCoupons();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to delete coupon')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Delete failed')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Coupons"),
-      ),
+      appBar: AppBar(title: const Text("Coupons")),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: openAddCouponForm,
+        onPressed: () => openAddCouponForm(),
         icon: const Icon(Icons.add),
-        label: const Text("Add New Coupon"),
+        label: const Text("Add Coupon"),
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -87,50 +80,54 @@ class _CouponPageState extends State<CouponPage> {
                       DataColumn(label: Text("Edit")),
                       DataColumn(label: Text("Delete")),
                     ],
-                    rows: coupons.map((coupon) {
-                      final id = coupon['CouponID'];
-                      final code = coupon['Code'];
-                      final status = coupon['Status'];
-                      final amount = coupon['DiscountAmount'];
-                      final start = coupon['StartDate'];
-                      final end = coupon['EndDate'];
+                    rows: coupons.map((c) {
+                      final id = c['coupon_id'];
 
-                      return DataRow(
-                        cells: [
-                          DataCell(Text(code.toString())),
-                          DataCell(Text(status.toString())),
-                          DataCell(Text(amount.toString())),
-                          DataCell(Text("$start → $end")),
-                          DataCell(
-                            IconButton(
-                              icon: const Icon(Icons.edit, color: Colors.blue),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        AddCouponForm(editCoupon: coupon),
-                                  ),
-                                ).then((value) {
-                                  if (value == true) loadCoupons();
-                                });
-                              },
-                            ),
+                      final code = c['code'] ?? '—';
+                      final status = c['status'] ?? '—';
+                      final amount = c['discount_amount'] ?? '—';
+
+                      final start = c['start_date'] != null
+                          ? DateFormat('yyyy-MM-dd')
+                              .format(DateTime.parse(c['start_date']))
+                          : '—';
+
+                      final end = c['end_date'] != null
+                          ? DateFormat('yyyy-MM-dd')
+                              .format(DateTime.parse(c['end_date']))
+                          : '—';
+
+                      return DataRow(cells: [
+                        DataCell(Text(code.toString())),
+                        DataCell(Text(status.toString())),
+                        DataCell(Text(amount.toString())),
+                        DataCell(Text("$start → $end")),
+                        DataCell(
+                          IconButton(
+                            icon:
+                                const Icon(Icons.edit, color: Colors.blue),
+                            onPressed: () =>
+                                openAddCouponForm(coupon: c),
                           ),
-                          DataCell(
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => deleteCoupon(id),
-                            ),
+                        ),
+                        DataCell(
+                          IconButton(
+                            icon:
+                                const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => deleteCoupon(id),
                           ),
-                        ],
-                      );
+                        ),
+                      ]);
                     }).toList(),
                   ),
                 ),
     );
   }
 }
+
+/* ============================================================
+   ADD / EDIT COUPON FORM
+============================================================ */
 
 class AddCouponForm extends StatefulWidget {
   final Map<String, dynamic>? editCoupon;
@@ -143,11 +140,11 @@ class AddCouponForm extends StatefulWidget {
 class _AddCouponFormState extends State<AddCouponForm> {
   final _formKey = GlobalKey<FormState>();
 
-  String couponCode = "";
-  String discountType = "Fixed";
-  double discountAmount = 0.0;
-  double minimumPurchase = 0.0;
-  String status = "Active";
+  String couponCode = '';
+  String discountType = 'Fixed';
+  double discountAmount = 0;
+  double minimumPurchase = 0;
+  String status = 'Active';
 
   DateTime? startDate;
   DateTime? endDate;
@@ -164,50 +161,57 @@ class _AddCouponFormState extends State<AddCouponForm> {
     if (widget.editCoupon == null) return;
 
     final c = widget.editCoupon!;
-    couponCode = c["Code"] ?? "";
-    discountType = c["DiscountType"] ?? "Fixed";
-    discountAmount = (c["DiscountAmount"] ?? 0).toDouble();
-    minimumPurchase = (c["MinimumPurchase"] ?? 0).toDouble();
-    status = c["Status"] ?? "Active";
 
-    startDate = DateTime.tryParse(c["StartDate"] ?? "");
-    endDate = DateTime.tryParse(c["EndDate"] ?? "");
+    couponCode = c['code'] ?? '';
+    discountType = c['discount_type'] ?? 'Fixed';
+    discountAmount =
+        double.tryParse(c['discount_amount']?.toString() ?? '0') ?? 0;
+    minimumPurchase =
+        double.tryParse(c['minimum_purchase']?.toString() ?? '0') ?? 0;
+    status = c['status'] ?? 'Active';
+
+    startDate = c['start_date'] != null
+        ? DateTime.parse(c['start_date'])
+        : null;
+
+    endDate = c['end_date'] != null
+        ? DateTime.parse(c['end_date'])
+        : null;
   }
 
-  Future<void> pickStart() async {
-    final d = await showDatePicker(
+  Future<void> pickDate(bool isStart) async {
+    final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
+      lastDate: DateTime(2035),
     );
-    if (d != null) setState(() => startDate = d);
-  }
-
-  Future<void> pickEnd() async {
-    final d = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (d != null) setState(() => endDate = d);
+    if (picked != null) {
+      setState(() {
+        if (isStart) {
+          startDate = picked;
+        } else {
+          endDate = picked;
+        }
+      });
+    }
   }
 
   Future<void> submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (startDate == null || endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select start & end dates")),
+        const SnackBar(content: Text("Select start & end date")),
       );
       return;
     }
 
     setState(() => isSaving = true);
 
+    final start = DateFormat('yyyy-MM-dd').format(startDate!);
+    final end = DateFormat('yyyy-MM-dd').format(endDate!);
+
     bool success;
-    final formattedStart = DateFormat("yyyy-MM-dd").format(startDate!);
-    final formattedEnd = DateFormat("yyyy-MM-dd").format(endDate!);
 
     if (widget.editCoupon == null) {
       success = await ApiService.addCoupon(
@@ -215,19 +219,19 @@ class _AddCouponFormState extends State<AddCouponForm> {
         discountType: discountType,
         discountAmount: discountAmount,
         minimumPurchase: minimumPurchase,
-        startDate: formattedStart,
-        endDate: formattedEnd,
+        startDate: start,
+        endDate: end,
         status: status,
       );
     } else {
       success = await ApiService.updateCoupon(
-        id: widget.editCoupon!["CouponID"],
+        id: widget.editCoupon!['coupon_id'],
         code: couponCode,
         discountType: discountType,
         discountAmount: discountAmount,
         minimumPurchase: minimumPurchase,
-        startDate: formattedStart,
-        endDate: formattedEnd,
+        startDate: start,
+        endDate: end,
         status: status,
         categoryId: null,
         subcategoryId: null,
@@ -236,14 +240,13 @@ class _AddCouponFormState extends State<AddCouponForm> {
     }
 
     if (!mounted) return;
-
     setState(() => isSaving = false);
 
     if (success) {
       Navigator.pop(context, true);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Failed to save coupon")),
+        const SnackBar(content: Text("Save failed")),
       );
     }
   }
@@ -252,8 +255,9 @@ class _AddCouponFormState extends State<AddCouponForm> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-          title:
-              Text(widget.editCoupon == null ? "Add Coupon" : "Edit Coupon")),
+        title:
+            Text(widget.editCoupon == null ? "Add Coupon" : "Edit Coupon"),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: SingleChildScrollView(
@@ -263,8 +267,9 @@ class _AddCouponFormState extends State<AddCouponForm> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 TextFormField(
-                  decoration: const InputDecoration(labelText: "Coupon Code"),
                   initialValue: couponCode,
+                  decoration:
+                      const InputDecoration(labelText: "Coupon Code"),
                   onChanged: (v) => couponCode = v,
                   validator: (v) =>
                       v == null || v.isEmpty ? "Required" : null,
@@ -275,29 +280,30 @@ class _AddCouponFormState extends State<AddCouponForm> {
                   decoration:
                       const InputDecoration(labelText: "Discount Type"),
                   items: const [
-                    DropdownMenuItem(value: "Fixed", child: Text("Fixed Amount")),
                     DropdownMenuItem(
-                        value: "Percentage", child: Text("Percentage %")),
+                        value: "Fixed", child: Text("Fixed")),
+                    DropdownMenuItem(
+                        value: "Percentage", child: Text("Percentage")),
                   ],
                   onChanged: (v) => setState(() => discountType = v!),
                 ),
 
                 TextFormField(
+                  initialValue: discountAmount.toString(),
                   decoration:
                       const InputDecoration(labelText: "Discount Amount"),
-                  initialValue: discountAmount.toString(),
                   keyboardType: TextInputType.number,
                   onChanged: (v) =>
-                      discountAmount = double.tryParse(v) ?? 0.0,
+                      discountAmount = double.tryParse(v) ?? 0,
                 ),
 
                 TextFormField(
+                  initialValue: minimumPurchase.toString(),
                   decoration:
                       const InputDecoration(labelText: "Minimum Purchase"),
-                  initialValue: minimumPurchase.toString(),
                   keyboardType: TextInputType.number,
                   onChanged: (v) =>
-                      minimumPurchase = double.tryParse(v) ?? 0.0,
+                      minimumPurchase = double.tryParse(v) ?? 0,
                 ),
 
                 const SizedBox(height: 12),
@@ -307,8 +313,10 @@ class _AddCouponFormState extends State<AddCouponForm> {
                   children: [
                     Text(startDate == null
                         ? "Start Date: Not selected"
-                        : "Start: ${DateFormat("yyyy-MM-dd").format(startDate!)}"),
-                    TextButton(onPressed: pickStart, child: const Text("Pick"))
+                        : "Start: ${DateFormat('yyyy-MM-dd').format(startDate!)}"),
+                    TextButton(
+                        onPressed: () => pickDate(true),
+                        child: const Text("Pick"))
                   ],
                 ),
 
@@ -317,17 +325,22 @@ class _AddCouponFormState extends State<AddCouponForm> {
                   children: [
                     Text(endDate == null
                         ? "End Date: Not selected"
-                        : "End: ${DateFormat("yyyy-MM-dd").format(endDate!)}"),
-                    TextButton(onPressed: pickEnd, child: const Text("Pick"))
+                        : "End: ${DateFormat('yyyy-MM-dd').format(endDate!)}"),
+                    TextButton(
+                        onPressed: () => pickDate(false),
+                        child: const Text("Pick"))
                   ],
                 ),
 
                 DropdownButtonFormField(
                   value: status,
-                  decoration: const InputDecoration(labelText: "Status"),
+                  decoration:
+                      const InputDecoration(labelText: "Status"),
                   items: const [
-                    DropdownMenuItem(value: "Active", child: Text("Active")),
-                    DropdownMenuItem(value: "Expired", child: Text("Expired")),
+                    DropdownMenuItem(
+                        value: "Active", child: Text("Active")),
+                    DropdownMenuItem(
+                        value: "Expired", child: Text("Expired")),
                   ],
                   onChanged: (v) => setState(() => status = v!),
                 ),

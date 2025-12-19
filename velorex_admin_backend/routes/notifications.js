@@ -7,7 +7,8 @@ const pool = require("../models/db");
    =============================== */
 router.post("/", async (req, res) => {
   try {
-    const { title, message, image_url } = req.body;
+    const { title, message, image_url, imageurl } = req.body;
+    const finalImage = image_url || imageurl || null;
 
     if (!title || !message)
       return res.status(400).json({ error: "Required fields missing" });
@@ -18,24 +19,28 @@ router.post("/", async (req, res) => {
       (title, description, image_url, send_date, is_active, created_at)
       VALUES ($1, $2, $3, NOW(), true, NOW())
       `,
-      [title, message, image_url || null]
+      [title, message, finalImage]
     );
-console.log("🔥 POST /notifications BODY:", req.body);
+   console.log("🔥 LIVE NOTIFICATION ROUTE EXECUTING");
+console.log("🔥 BODY =", req.body);
 
+    console.log("🔥 POST /notifications BODY:", req.body);
     res.status(201).json({ success: true });
+
   } catch (e) {
     console.error("❌ CREATE:", e);
     res.status(500).json({ error: e.message });
   }
 });
 
+
 /* ===============================
    UPDATE
    =============================== */
 router.put("/:id", async (req, res) => {
   try {
-    const { title, message, image_url } = req.body;
-    const { id } = req.params;
+    const { title, message, image_url, imageurl } = req.body;
+    const finalImage = image_url || imageurl || null;
 
     await pool.query(
       `
@@ -43,15 +48,17 @@ router.put("/:id", async (req, res) => {
       SET title=$1, description=$2, image_url=$3, updated_at=NOW()
       WHERE notification_id=$4
       `,
-      [title, message, image_url || null, id]
+      [title, message, finalImage, req.params.id]
     );
 
     res.json({ success: true });
+
   } catch (e) {
     console.error("❌ UPDATE:", e);
     res.status(500).json({ error: e.message });
   }
 });
+
 
 /* ===============================
    GET

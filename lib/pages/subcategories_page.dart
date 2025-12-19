@@ -31,43 +31,42 @@ class _SubcategoriesPageState extends State<SubcategoriesPage> {
   }
 
   // ================= FETCH DATA =================
- // ================= FETCH DATA =================
-  Future<void> loadData() async {
-    setState(() => isLoading = true);
-    try {
-      final rawCategories = await ApiService.getCategories();
-      categories = rawCategories.map<Map<String, dynamic>>((c) => {
-            'CategoryID': c['CategoryID'] ?? c['category_id'],
-            'Name': c['Name'] ?? c['name'] ?? '',
-          }).toList();
+ Future<void> loadData() async {
+  setState(() => isLoading = true);
 
-categories = rawCategories.map<Map<String, dynamic>>((c) => {
-  'CategoryID': c['CategoryID'] ?? c['category_id'],
-'Name': c['Name'] ?? c['name'] ?? '',
+  try {
+    // ---------- CATEGORIES ----------
+    final rawCategories = await ApiService.getCategories();
+    categories = rawCategories.map<Map<String, dynamic>>((c) => {
+      'CategoryID': c['CategoryID'] ?? c['category_id'],
+      'Name': c['Name'] ?? c['name'] ?? '',
+    }).toList();
 
-}).toList();
+    // ---------- SUBCATEGORIES ----------
+    final subs = await ApiService.getSubcategories();
 
+    allSubcategories = subs.map<Map<String, dynamic>>((s) => {
+      'SubcategoryID': s['SubcategoryID'],
+      'Name': s['Name'],
+      'CategoryID': s['CategoryID'],
+      'CategoryName': s['CategoryName'],
+      'CreatedAt': s['CreatedAt'],
+    }).toList();
 
-     final subs = await ApiService.getSubcategories();
-subcategories = subs.map<Map<String, dynamic>>((s) => {
-  'SubcategoryID': s['SubcategoryID'] ?? s['subcategory_id'],
-  'Name': s['Name'] ?? s['name'] ?? '',
-  'CategoryID': s['CategoryID'] ?? s['category_id'],
-  'CategoryName': s['CategoryName'] ?? s['category_name'] ?? '',
-  'CreatedAt': s['CreatedAt'] ?? s['created_at'],
-}).toList();
+    subcategories = List.from(allSubcategories);
 
-
-      subcategories = allSubcategories;
-
-    } catch (e) {
-      categories = [];
-      subcategories = [];
-      allSubcategories = [];
-      debugPrint('❌ Failed to load subcategories: $e');
-    }
-    setState(() => isLoading = false);
+    debugPrint("🧪 Loaded subcategories: ${allSubcategories.length}");
+  } catch (e) {
+    debugPrint('❌ Failed to load subcategories: $e');
+    categories = [];
+    subcategories = [];
+    allSubcategories = [];
   }
+
+  setState(() => isLoading = false);
+}
+
+
 
   // 🔍 SEARCH + FILTER LOGIC
   void _applyFilters() {
@@ -202,17 +201,18 @@ subcategories = subs.map<Map<String, dynamic>>((s) => {
                                 final id = sub['SubcategoryID'];
                                 return DataRow(cells: [
                                   DataCell(Text(sub['Name'])),
-                                  DataCell(Text(sub['CategoryName'])),
+                                DataCell(Text(sub['CategoryName'] ?? '—')),
+
                                   DataCell(
-                                    Text(
-                                      sub['CreatedAt'] != null
-                                          ? DateTime.parse(
-                                                  sub['CreatedAt'])
-                                              .toLocal()
-                                              .toString()
-                                              .split(' ')[0]
-                                          : 'N/A',
-                                    ),
+                                   Text(
+  sub['CreatedAt'] != null
+      ? DateTime.parse(sub['CreatedAt'])
+          .toLocal()
+          .toString()
+          .split(' ')[0]
+      : 'N/A',
+),
+
                                   ),
                                   DataCell(
                                     IconButton(

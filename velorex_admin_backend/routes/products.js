@@ -748,24 +748,29 @@ router.post("/spec/field", async (req, res) => {
 
 // GET /products/spec/product/:productId
 router.get("/spec/product/:productId", async (req, res) => {
-  const productId = Number(req.params.productId);
+  const { productId } = req.params;
 
-  const { rows } = await pool.query(
-    `
-    SELECT field_id, value
-    FROM product_spec_values
-    WHERE product_id = $1
-    `,
-    [productId]
-  );
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT field_id, value
+      FROM product_specification_values
+      WHERE product_id = $1
+      `,
+      [productId]
+    );
 
-  const result = {};
-  for (const r of rows) {
-    result[r.field_id] = r.value;
+    const map = {};
+    for (const r of rows) {
+      map[r.field_id] = r.value;
+    }
+
+    res.json(map);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
-
-  res.json(result); // ✅ MAP
 });
+
 
 
 
@@ -797,29 +802,33 @@ router.get("/spec/sections-with-fields", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-
 router.post("/spec/product/save", async (req, res) => {
   const { productId, specs } = req.body;
+
   if (!productId || !Array.isArray(specs)) {
-    return res.status(400).json({ success: false });
+    return res.status(400).json({ success: false, error: "Invalid payload" });
   }
 
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
     await client.query(
-      "DELETE FROM product_spec_values WHERE product_id = $1",
+      "DELETE FROM product_specification_values WHERE product_id = $1",
       [productId]
     );
 
-    for (const s of specs) {
+    for (const spec of specs) {
+      if (!spec.fieldId) continue;
+
       await client.query(
         `
-        INSERT INTO product_spec_values (product_id, field_id, value)
+        INSERT INTO product_specification_values
+          (product_id, field_id, value)
         VALUES ($1, $2, $3)
         `,
-        [productId, s.fieldId, s.value]
+        [productId, spec.fieldId, spec.value ?? ""]
       );
     }
 
@@ -832,7 +841,6 @@ router.post("/spec/product/save", async (req, res) => {
     client.release();
   }
 });
-
 
 
 

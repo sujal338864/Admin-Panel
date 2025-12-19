@@ -523,50 +523,66 @@ static Future<Map<String, dynamic>> updateProductWithVariants({
   /// 
   /// 1) Get sections + fields template
   /// 
-  static Future<List<SpecSection>> getSpecSectionsWithFields() async {
-    final uri = Uri.parse("$baseUrl/products/spec/sections-with-fields");
-    final res = await http.get(uri);
-
-    if (res.statusCode != 200) {
-      throw Exception('Failed to load spec sections');
-    }
-
-    final decoded = jsonDecode(res.body);
-
-    // backend might send { sections: [...] } or just [...]
-    final list = decoded is Map<String, dynamic> && decoded['sections'] != null
-        ? decoded['sections'] as List
-        : decoded as List;
-
-    return list
-        .map((e) => SpecSection.fromJson(e as Map<String, dynamic>))
-        .toList();
-  }
-
- static Future<Map<int, String>> getProductSpecs(int productId) async {
-  final uri = Uri.parse("$baseUrl/products/spec/product/$productId");
-  final res = await http.get(uri);
+  /// 
+static Future<List<SpecSection>> getSpecSectionsWithFields() async {
+  final res = await http.get(
+    Uri.parse('$baseUrl/products/spec/sections-with-fields'),
+  );
 
   if (res.statusCode != 200) {
-    throw Exception('Failed to load product specs');
+    throw Exception("Failed to load spec template");
   }
 
   final decoded = jsonDecode(res.body);
 
-  final Map<int, String> result = {};
+  List sectionsJson = [];
 
-  if (decoded is List) {
-    for (final row in decoded) {
-      final map = row as Map<String, dynamic>;
-      final fid = map['FieldID'];
-      if (fid == null) continue;
-      result[int.parse(fid.toString())] =
-          (map['Value'] ?? '').toString();
-    }
+  // ✅ Case 1: API returns { sections: [...] }
+  if (decoded is Map<String, dynamic> && decoded['sections'] is List) {
+    sectionsJson = decoded['sections'];
   }
 
-  return result;
+  // ✅ Case 2: API returns [ {...}, {...} ]
+  else if (decoded is List) {
+    sectionsJson = decoded;
+  }
+
+  return sectionsJson
+      .map((e) => SpecSection.fromJson(
+            Map<String, dynamic>.from(e),
+          ))
+      .toList();
 }
+
+static Future<Map<int, String>> getProductSpecs(int productId) async {
+  final res = await http.get(
+    Uri.parse("$baseUrl/products/spec/product/$productId"),
+  );
+
+  if (res.statusCode != 200) return {};
+
+  final decoded = jsonDecode(res.body);
+
+  // Case 1 → API returns MAP
+  if (decoded is Map<String, dynamic>) {
+    return decoded.map(
+      (k, v) => MapEntry(int.parse(k), v.toString()),
+    );
+  }
+
+  // Case 2 → API returns LIST (your case)
+  if (decoded is List) {
+    final Map<int, String> map = {};
+    for (final item in decoded) {
+      final m = Map<String, dynamic>.from(item);
+      map[m["field_id"]] = m["value"]?.toString() ?? "";
+    }
+    return map;
+  }
+
+  return {};
+}
+
 
 
   /// 3) Save product specs

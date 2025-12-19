@@ -72,6 +72,7 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
   List<SpecSection> specSections = [];
   Map<int, TextEditingController> specControllers = {}; // fieldId -> controller
   bool isLoadingSpecs = false;
+int? parentProductId;
 
 final ScrollController _pageScrollCtrl = ScrollController();
 
@@ -145,16 +146,21 @@ void initState() {
   _initAll();
 }
 Future<void> _initAll() async {
+  setState(() => isLoading = true);
+
   await loadData();
 
   if (widget.productId != null) {
     await loadExistingProduct(widget.productId!);
+  } else {
+    // create mode
+    isChildProduct = false;
+    parentProductId = null;
+    await _loadSpecTemplateAndValues();
   }
 
-  // ✅ KEEP THIS
-  await _loadSpecTemplateAndValues();
+  if (mounted) setState(() => isLoading = false);
 }
-
 
   @override
   void dispose() {
@@ -238,13 +244,16 @@ Future<void> loadExistingProduct(int id) async {
 
     final Map<String, dynamic> parent =
         Map<String, dynamic>.from(resp["parent"] ?? {});
-     
-
-
+  
     final List<dynamic> children = resp["children"] ?? [];
+  final int? parentIdFromApi = _toIntSafe(parent['parent_product_id']);
 
-    // ✅ CRITICAL: Detect child product FIRST
-    isChildProduct = parent['parent_product_id'] != null;
+isChildProduct = parentIdFromApi != null;
+parentProductId = isChildProduct ? parentIdFromApi : widget.productId;
+
+debugPrint("🧠 isChildProduct = $isChildProduct");
+debugPrint("🧠 parentProductId for specs = $parentProductId");
+
     debugPrint("🧠 isChildProduct = $isChildProduct");
 
     debugPrint("🟢 Editing productId=$id");
@@ -281,8 +290,6 @@ Future<void> loadExistingProduct(int id) async {
 
     _filterBrandsForSubcategory();
 
-    // 🔥 LOAD SPEC TEMPLATE + EXISTING VALUES (FIX)
-
 
     // ---------- IMAGES ----------
     parentImageUrls.clear();
@@ -299,26 +306,29 @@ Future<void> loadExistingProduct(int id) async {
     }
 
     // ---------- VARIANTS ----------
-    combos.clear();
-    selectedVariantPes.clear();
+   // ---------- VARIANTS ----------
+combos.clear();
+selectedVariantPes.clear();
 
-    for (final ch in children) {
-      final Map chMap = ch as Map;
+for (final ch in children) {
+  final Map chMap = ch as Map;
 
-      combos.add(
-        VariantCombo(
-          selections: {},
-          price: double.tryParse(chMap["price"]?.toString() ?? "") ?? 0,
-          offerPrice:
-              double.tryParse(chMap["offer_price"]?.toString() ?? "") ?? 0,
-          stock: _toIntSafe(chMap["stock"]) ?? 0,
-          sku: chMap["sku"]?.toString() ?? "",
-          description: chMap["description"]?.toString() ?? "",
-          useParentImages: true,
-          videoUrl: chMap["video_url"]?.toString() ?? "",
-        ),
-      );
-    }
+  combos.add(
+    VariantCombo(
+      selections: {},
+      price: double.tryParse(chMap["price"]?.toString() ?? "") ?? 0,
+      offerPrice:
+          double.tryParse(chMap["offer_price"]?.toString() ?? "") ?? 0,
+      stock: _toIntSafe(chMap["stock"]) ?? 0,
+      sku: chMap["sku"]?.toString() ?? "",
+      description: chMap["description"]?.toString() ?? "",
+      useParentImages: true,
+      videoUrl: chMap["video_url"]?.toString() ?? "",
+    ),
+  );
+}
+// 🔥 NOW parentProductId IS READY → load specs with values
+await _loadSpecTemplateAndValues();
 
     debugPrint("🟣 Variants loaded: ${combos.length}");
     setState(() {});
@@ -329,13 +339,12 @@ Future<void> loadExistingProduct(int id) async {
     if (mounted) setState(() => isLoading = false);
   }
 }
-
 Future<void> _loadSpecTemplateAndValues() async {
   for (final c in specControllers.values) {
-  c.dispose();
-}
-specControllers.clear();
-specSections.clear();
+    c.dispose();
+  }
+  specControllers.clear();
+  specSections.clear();
 
   if (!mounted) return;
 
@@ -344,20 +353,31 @@ specSections.clear();
   try {
     final sections = await ApiService.getSpecSectionsWithFields();
 
-    final Map<int, String> existingValues = {};
+   Map<int, String> existingValues = {};
 
-    if (widget.productId != null) {
-      final vals =
-          await ApiService.getProductSpecs(widget.productId!);
+if (parentProductId != null) {
+  // 1️⃣ Load parent specs
+  final parentVals = await ApiService.getProductSpecs(parentProductId!);
 
-      existingValues.addAll(vals);
+  // 2️⃣ If this is child → load its specs too
+  Map<int, String> childVals = {};
+  if (isChildProduct && widget.productId != null) {
+    childVals = await ApiService.getProductSpecs(widget.productId!);
+  }
 
-      debugPrint(
-        "🟢 Loaded specs for productId=${widget.productId} → $existingValues",
-      );
-    }
+  // 3️⃣ Merge → child overrides parent
+  existingValues = Map.from(parentVals);
+  existingValues.addAll(childVals);
 
-    final Map<int, TextEditingController> ctrls = {};
+  debugPrint("🟢 Parent Specs = $parentVals");
+  debugPrint("🟢 Child Specs  = $childVals");
+  debugPrint("🟢 FINAL MERGED = $existingValues");
+}
+
+
+
+
+    final ctrls = <int, TextEditingController>{};
 
     for (final sec in sections) {
       for (final field in sec.fields) {
@@ -366,19 +386,26 @@ specSections.clear();
         );
       }
     }
+    debugPrint("🧪 _loadSpecTemplateAndValues parentProductId = $parentProductId");
+
+debugPrint("🔥 Spec sections fetched = ${sections.length}");
+debugPrint("🔥 Sections = $sections");
+
 
     if (!mounted) return;
+
     setState(() {
       specSections = sections;
       specControllers = ctrls;
     });
   } catch (e, st) {
-    debugPrint('❌ load specs error: $e');
+    debugPrint("❌ load specs error: $e");
     debugPrintStack(stackTrace: st);
   } finally {
     if (mounted) setState(() => isLoadingSpecs = false);
   }
 }
+
 
 
   // ----------------- IMAGE PICK / COMPRESS -----------------
@@ -730,24 +757,24 @@ specSections.clear();
   }
 
   // ----------------- SPEC HELPERS -----------------
-  List<Map<String, dynamic>> _collectSpecsToSave() {
-    final List<Map<String, dynamic>> specs = [];
+Map<int, String> _buildDirectSpecMap() {
+  final Map<int, String> map = {};
 
-    for (final sec in specSections) {
-      for (final field in sec.fields) {
-        final ctrl = specControllers[field.fieldId];
-        if (ctrl == null) continue;
-        final val = ctrl.text.trim();
-        if (val.isEmpty) continue; // skip empty fields
-        specs.add({
-          'fieldId': field.fieldId,
-          'value': val,
-        });
-      }
+  for (final sec in specSections) {
+    for (final field in sec.fields) {
+      final ctrl = specControllers[field.fieldId];
+      if (ctrl == null) continue;
+
+      final value = ctrl.text.trim();
+      if (value.isEmpty) continue;
+
+      map[field.fieldId] = value;
     }
-
-    return specs;
   }
+
+  return map;
+}
+
 
 Widget _buildSpecificationSection() {
   return Card(
@@ -780,14 +807,15 @@ Widget _buildSpecificationSection() {
                 ],
               ),
             )
-          else if (specSections.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: Text(
-                'No specification template configured yet.',
-                style: TextStyle(color: Colors.grey),
-              ),
-            )
+         else if (specSections.isEmpty && !isLoadingSpecs)
+  const Padding(
+    padding: EdgeInsets.all(8.0),
+    child: Text(
+      'No specification template configured yet.',
+      style: TextStyle(color: Colors.grey),
+    ),
+  )
+
           else
             Column(
               children: specSections.map((sec) {
@@ -815,23 +843,24 @@ Widget _buildSpecificationSection() {
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
                           child: DropdownButtonFormField<String>(
-                            value: ctrl.text.isEmpty ? null : ctrl.text,
-                            decoration: InputDecoration(
-                              labelText: field.name,
-                              border: const OutlineInputBorder(),
-                            ),
-                            items: field.options
-                                .map(
-                                  (opt) => DropdownMenuItem(
-                                    value: opt,
-                                    child: Text(opt),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (v) {
-                              ctrl.text = v ?? '';
-                            },
-                          ),
+  value: ctrl.text.isEmpty ? null : ctrl.text,
+  decoration: InputDecoration(
+    labelText: field.name,
+    border: const OutlineInputBorder(),
+  ),
+  items: field.options
+      .map(
+        (opt) => DropdownMenuItem(
+          value: opt,
+          child: Text(opt),
+        ),
+      )
+      .toList(),
+  onChanged: isChildProduct
+      ? null
+      : (v) => ctrl.text = v ?? '',
+)
+
                         );
                       }
                       
@@ -840,14 +869,28 @@ Widget _buildSpecificationSection() {
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: TextFormField(
-                          controller: ctrl,
-                          decoration: InputDecoration(
-                            labelText: field.name,
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
+  controller: ctrl,
+  enabled: true,
+  decoration: InputDecoration(
+    labelText: field.name,
+    border: const OutlineInputBorder(),
+  ),
+)
+
                       );
                     }).toList(),
+  //                   if (isChildProduct)
+  // Padding(
+  //   padding: const EdgeInsets.only(bottom: 8),
+  //   child: Text(
+  //     'Specifications are inherited from parent product',
+  //     style: TextStyle(
+  //       color: Colors.grey,
+  //       fontStyle: FontStyle.italic,
+  //     ),
+  //   ),
+  // ),
+
                   ],
                 );
               }).toList(),
@@ -898,6 +941,8 @@ List<Map<String, dynamic>> _buildChildVariantsImages() {
     };
   }).toList();
 }
+
+
 Future<void> saveProduct() async {
 
 //   // 🔴 ENSURE SPEC CONTROLLERS ARE READY
@@ -987,22 +1032,23 @@ debugPrint("🧠 Child IDs = $childIds");
     }
 
  // ================= SAVE SPECS (FINAL) =================
+// ================= DIRECT SPEC SAVE =================
 
-// ================= SAVE SPECS (FINAL – CORRECT) =================
+final Map<int, String> specsMap = _buildDirectSpecMap();
 
-// Collect specs ONCE
-final specs = _collectSpecsToSave();
+if (specsMap.isNotEmpty) {
+  final specsList = specsMap.entries.map((e) => {
+    'fieldId': e.key,
+    'value': e.value,
+  }).toList();
 
-debugPrint("🧪 FINAL SPECS SAVE → productId=$finalProductId specs=$specs");
-
-// Save ONLY for the currently edited product
-if (finalProductId != null && specs.isNotEmpty) {
   await ApiService.saveProductSpecs(
-    productId: finalProductId!,
-    specs: specs,
+    productId: isChildProduct
+        ? widget.productId!          // save to child
+        : (widget.productId ?? finalProductId!), // save to parent
+    specs: specsList,
   );
 }
-
 
 if (mounted) {
   ScaffoldMessenger.of(context).showSnackBar(

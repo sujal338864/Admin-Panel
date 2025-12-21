@@ -915,23 +915,49 @@ Widget _buildSpecificationSection() {
 
 List<Map<String, dynamic>> _buildVariantsPayload() {
   return combos.map((combo) {
+    final selectionsList = <Map<String, dynamic>>[];
+
+    combo.selections.forEach((typeName, value) {
+      final type = selectedVariantPes.firstWhere(
+        (e) => e['name'] == typeName,
+        orElse: () => <String, dynamic>{},
+      );
+
+      final typeId = type['typeId'];
+
+      final valuesList = variantValuesByType[typeId] ?? [];
+
+      final match = valuesList.firstWhere(
+        (v) => v['value'].toString() == value.toString(),
+        orElse: () => <String, dynamic>{
+          "id": null,
+          "value": value,
+        },
+      );
+
+      selectionsList.add({
+        "VariantTypeID": typeId,
+        "VariantID": match["id"],
+        "value": value,
+      });
+    });
+
     return {
-      'selections': combo.selections.entries.map((e) {
-        return {
-          'value': e.value,
-        };
-      }).toList(),
-      'price': combo.price,
-      'offerPrice': combo.offerPrice,
-      'stock': combo.stock,
-      'quantity': quantity,
-      'sku': combo.sku,
-      'description': combo.description,
-      'videoUrl': combo.videoUrl,
-      'combinationKey': combo.selections.values.join('-'),
+      "selections": selectionsList,
+      "price": combo.price,
+      "offerPrice": combo.offerPrice,
+      "stock": combo.stock,
+      "quantity": quantity,
+      "sku": combo.sku,
+      "description": combo.description,
+      "videoUrl": combo.videoUrl,
+      "combinationKey": combo.selections.values.join("-"),
     };
   }).toList();
 }
+
+
+
 List<Map<String, dynamic>> _buildChildVariantsImages() {
   return combos.map((combo) {
     return {
@@ -985,15 +1011,19 @@ Future<void> saveProduct() async {
 
     // ---------------- CREATE ----------------
     if (widget.productId == null) {
-      final resp = await ApiService.uploadProductWithVariants(
-        parentJson: parentJson,
-        variantsPayload: variantsPayload,   // ✅ NOT EMPTY
-        parentImageFiles: imageFiles,
-        parentImageBytes: imageBytes,
-        childVariants: childVariants,       // ✅ NOT EMPTY
-      );
+     final resp = await ApiService.uploadProductWithVariants(
+  parentJson: parentJson,
+  variantsPayload: variantsPayload,
+  parentImageFiles: imageFiles,
+  parentImageBytes: imageBytes,
+  childVariants: childVariants,
+);
 
-  finalProductId = resp['parentProductId'];
+if (resp['success'] != true || resp['parentProductId'] == null) {
+  throw Exception(resp['error'] ?? "Product create failed");
+}
+
+finalProductId = resp['parentProductId'];
 
 final List<dynamic> childIds = resp['childProductIds'] ?? [];
 

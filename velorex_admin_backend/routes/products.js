@@ -9,6 +9,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const pool = require("../models/db"); // pg Pool
 const supabase = require("../models/supabaseClient");
+console.log("🚀 Supabase instance:", supabase?.constructor?.name);
+console.log("🔍 Has storage:", !!supabase?.storage);
 
 /* ===========================
    HELPERS

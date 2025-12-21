@@ -15,7 +15,6 @@ console.log("🔍 Has storage:", !!supabase?.storage);
 /* ===========================
    HELPERS
 =========================== */
-
 async function uploadToSupabase(file, folder = "product/single") {
   if (!file) throw new Error("No file");
 
@@ -25,17 +24,41 @@ async function uploadToSupabase(file, folder = "product/single") {
 
   const key = `${folder}/${fileName}`;
 
-  const { error } = await supabase.storage
+  const { data, error } = await supabase.storage
     .from("product")
     .upload(key, file.buffer, {
       contentType: file.mimetype,
-      upsert: false,
+      upsert: true
     });
 
-  if (error) throw error;
+  if (error) {
+    console.error("Supabase upload failed:", error);
+    throw new Error("Image upload failed");
+  }
 
   return supabase.storage.from("product").getPublicUrl(key).data.publicUrl;
 }
+
+// async function uploadToSupabase(file, folder = "product/single") {
+//   if (!file) throw new Error("No file");
+
+//   const fileName = `${Date.now()}_${Math.random()
+//     .toString(36)
+//     .slice(2, 8)}_${file.originalname.replace(/\s+/g, "_")}`;
+
+//   const key = `${folder}/${fileName}`;
+
+//   const { error } = await supabase.storage
+//     .from("product")
+//     .upload(key, file.buffer, {
+//       contentType: file.mimetype,
+//       upsert: false,
+//     });
+
+//   if (error) throw error;
+
+//   return supabase.storage.from("product").getPublicUrl(key).data.publicUrl;
+// }
 
 function sanitizeComboKey(k = "") {
   return k.toString().replace(/[^a-zA-Z0-9_-]/g, "_");

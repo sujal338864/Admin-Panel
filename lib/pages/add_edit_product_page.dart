@@ -9,7 +9,7 @@ import 'package:admin_panel/models/spec_models.dart'; // ⬅️ SpecSection / Sp
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import '../models/variant_models.dart';
+// import '../models/variant_models.dart';
 import '../services/api_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -963,21 +963,25 @@ List<Map<String, dynamic>> _buildChildVariantsImages() {
     return {
       'comboKey': combo.selections.values.join('-'),
       'useParentImages': combo.useParentImages,
-      'images': combo.extraImages ?? [],
+  'images': combo.extraImages != null && combo.extraImages!.isNotEmpty
+    ? combo.extraImages
+    : [],
+
     };
   }).toList();
 }
 
 
 Future<void> saveProduct() async {
-
-//   // 🔴 ENSURE SPEC CONTROLLERS ARE READY
-// if (specSections.isNotEmpty && specControllers.isEmpty) {
-//   debugPrint("⚠️ Spec controllers empty → rebuilding");
-//   await _loadSpecTemplateAndValues();
-// }
-// final parentSpecs = _collectSpecsToSave();
-// debugPrint("🧪 COLLECTED SPECS = $parentSpecs");
+  // 🔴 BLOCK SAVE IF NO IMAGE (CREATE MODE)
+  if (widget.productId == null &&
+      imageFiles.isEmpty &&
+      imageBytes.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Please select at least one product image")),
+    );
+    return;
+  }
 
   if (!_formKey.currentState!.validate()) return;
 
@@ -1005,36 +1009,41 @@ Future<void> saveProduct() async {
       'videoUrl': parentVideoController.text.trim(),
     };
 
-    // 🔥 BUILD CHILD DATA
+    // 🔥 BUILD VARIANTS DATA (SAFE)
     final variantsPayload = _buildVariantsPayload();
     final childVariants = _buildChildVariantsImages();
 
+    // 🧪 DEBUG (KEEP THIS)
+    debugPrint("🧪 imageFiles = ${imageFiles.length}");
+    debugPrint("🧪 imageBytes = ${imageBytes.length}");
+    debugPrint("🧪 variantsPayload = ${variantsPayload.length}");
+    debugPrint("🧪 childVariants = ${childVariants.length}");
+
     // ---------------- CREATE ----------------
     if (widget.productId == null) {
-     final resp = await ApiService.uploadProductWithVariants(
-  parentJson: parentJson,
-  variantsPayload: variantsPayload,
-  parentImageFiles: imageFiles,
-  parentImageBytes: imageBytes,
-  childVariants: childVariants,
-);
+      final resp = await ApiService.uploadProductWithVariants(
+        parentJson: parentJson,
+        variantsPayload: variantsPayload,
+        parentImageFiles: imageFiles,
+        parentImageBytes: imageBytes,
+        childVariants: childVariants,
+      );
 
-if (resp['success'] != true || resp['parentProductId'] == null) {
-  throw Exception(resp['error'] ?? "Product create failed");
-}
+      if (resp['success'] != true || resp['parentProductId'] == null) {
+        throw Exception(resp['error'] ?? "Product create failed");
+      }
 
-finalProductId = resp['parentProductId'];
+      finalProductId = resp['parentProductId'];
 
-final List<dynamic> childIds = resp['childProductIds'] ?? [];
+      final List<dynamic> childIds = resp['childProductIds'] ?? [];
+      for (int i = 0; i < combos.length && i < childIds.length; i++) {
+        combos[i].childProductId = childIds[i];
+      }
 
-for (int i = 0; i < combos.length && i < childIds.length; i++) {
-  combos[i].childProductId = childIds[i];
-}
-
-debugPrint("🧠 Parent ID = $finalProductId");
-debugPrint("🧠 Child IDs = $childIds");
-
+      debugPrint("🧠 Parent ID = $finalProductId");
+      debugPrint("🧠 Child IDs = $childIds");
     }
+
     // ---------------- UPDATE ----------------
     else {
       if (isChildProduct) {
@@ -1061,32 +1070,34 @@ debugPrint("🧠 Child IDs = $childIds");
       finalProductId = widget.productId;
     }
 
- // ================= SAVE SPECS (FINAL) =================
-// ================= DIRECT SPEC SAVE =================
+    // ================= SAVE SPECS =================
+    final Map<int, String> specsMap = _buildDirectSpecMap();
 
-final Map<int, String> specsMap = _buildDirectSpecMap();
+    if (specsMap.isNotEmpty) {
+      final specProductId =
+          isChildProduct ? widget.productId : finalProductId;
 
-if (specsMap.isNotEmpty) {
-  final specsList = specsMap.entries.map((e) => {
-    'fieldId': e.key,
-    'value': e.value,
-  }).toList();
+      if (specProductId == null) {
+        throw Exception("Product ID missing while saving specs");
+      }
 
-  await ApiService.saveProductSpecs(
-    productId: isChildProduct
-        ? widget.productId!          // save to child
-        : (widget.productId ?? finalProductId!), // save to parent
-    specs: specsList,
-  );
-}
+      final specsList = specsMap.entries.map((e) => {
+            'fieldId': e.key,
+            'value': e.value,
+          }).toList();
 
-if (mounted) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text("Product saved successfully")),
-  );
-  Navigator.pop(context);
-}
+      await ApiService.saveProductSpecs(
+        productId: specProductId,
+        specs: specsList,
+      );
+    }
 
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Product saved successfully")),
+      );
+      Navigator.pop(context);
+    }
   } catch (e) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1097,6 +1108,145 @@ if (mounted) {
     if (mounted) setState(() => isSaving = false);
   }
 }
+
+
+// Future<void> saveProduct() async {
+
+// //   // 🔴 ENSURE SPEC CONTROLLERS ARE READY
+// // if (specSections.isNotEmpty && specControllers.isEmpty) {
+// //   debugPrint("⚠️ Spec controllers empty → rebuilding");
+// //   await _loadSpecTemplateAndValues();
+// // }
+// // final parentSpecs = _collectSpecsToSave();
+// // debugPrint("🧪 COLLECTED SPECS = $parentSpecs");
+
+//   if (!_formKey.currentState!.validate()) return;
+
+//   setState(() => isSaving = true);
+// // 🔴 BLOCK SAVE IF NO IMAGE (CREATE MODE)
+// if (widget.productId == null &&
+//     imageFiles.isEmpty &&
+//     imageBytes.isEmpty) {
+//   ScaffoldMessenger.of(context).showSnackBar(
+//     const SnackBar(content: Text("Please select at least one product image")),
+//   );
+//   return;
+// }
+
+//   try {
+//     int? finalProductId;
+
+//     final name = nameController.text.trim();
+//     final description = descriptionController.text.trim();
+//     final price = double.tryParse(priceController.text) ?? 0.0;
+//     final offerPrice = double.tryParse(offerPriceController.text) ?? 0.0;
+//     final quantity = int.tryParse(quantityController.text) ?? 1;
+
+//     final parentJson = {
+//       'name': name,
+//       'description': description,
+//       'categoryId': selectedCategoryId,
+//       'subcategoryId': selectedSubcategoryId,
+//       'brandId': selectedBrandId,
+//       'price': price,
+//       'offerPrice': offerPrice,
+//       'quantity': quantity,
+//       'stock': stock,
+//       'videoUrl': parentVideoController.text.trim(),
+//     };
+
+//     // 🔥 BUILD CHILD DATA
+//     final variantsPayload = _buildVariantsPayload();
+//     final childVariants = ;
+
+//     // ---------------- CREATE ----------------
+//     if (widget.productId == null) {
+//      final resp = await ApiService.uploadProductWithVariants(
+//   parentJson: parentJson,
+//   variantsPayload: variantsPayload,
+//   parentImageFiles: imageFiles,
+//   parentImageBytes: imageBytes,
+//   childVariants: childVariants,
+// );
+
+// if (resp['success'] != true || resp['parentProductId'] == null) {
+//   throw Exception(resp['error'] ?? "Product create failed");
+// }
+
+// finalProductId = resp['parentProductId'];
+
+// final List<dynamic> childIds = resp['childProductIds'] ?? [];
+
+// for (int i = 0; i < combos.length && i < childIds.length; i++) {
+//   combos[i].childProductId = childIds[i];
+// }
+
+// debugPrint("🧠 Parent ID = $finalProductId");
+// debugPrint("🧠 Child IDs = $childIds");
+
+//     }
+//     // ---------------- UPDATE ----------------
+//     else {
+//       if (isChildProduct) {
+//         await ApiService.updateChildProduct(
+//           productId: widget.productId!,
+//           data: {
+//             'name': name,
+//             'price': price,
+//             'offerPrice': offerPrice,
+//             'quantity': quantity,
+//             'stock': stock,
+//             'sku': '',
+//           },
+//           images: imageFiles.isNotEmpty ? imageFiles : null,
+//         );
+//       } else {
+//         await ApiService.updateParentProduct(
+//           productId: widget.productId!,
+//           data: parentJson,
+//           images: imageFiles.isNotEmpty ? imageFiles : null,
+//         );
+//       }
+
+//       finalProductId = widget.productId;
+//     }
+
+//  // ================= SAVE SPECS (FINAL) =================
+// // ================= DIRECT SPEC SAVE =================
+
+// final Map<int, String> specsMap = _buildDirectSpecMap();
+
+// if (specsMap.isNotEmpty) {
+//   final specsList = specsMap.entries.map((e) => {
+//     'fieldId': e.key,
+//     'value': e.value,
+//   }).toList();
+
+//   await ApiService.saveProductSpecs(
+//     productId: isChildProduct
+//         ? widget.productId!          // save to child
+//         : (widget.productId ?? finalProductId!), // save to parent
+//     specs: specsList,
+//   );
+// }
+
+// if (mounted) {
+//   ScaffoldMessenger.of(context).showSnackBar(
+//     const SnackBar(content: Text("Product saved successfully")),
+//   );
+//   Navigator.pop(context);
+// }
+
+//   } catch (e) {
+//     if (mounted) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         SnackBar(content: Text("Save failed: $e")),
+//       );
+//     }
+//   } finally {
+//     if (mounted) setState(() => isSaving = false);
+//   }
+// }
 
 
   /// ---------------------- UI BUILD ----------------------

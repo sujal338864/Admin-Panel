@@ -16,19 +16,21 @@ console.log("🔍 Has storage:", !!supabase?.storage);
    HELPERS
 =========================== */
 async function uploadToSupabase(file, folder = "product/single") {
-  if (!file) throw new Error("No file");
+  if (!file || !file.buffer) {
+    throw new Error("Invalid file or empty buffer");
+  }
 
   const fileName = `${Date.now()}_${Math.random()
     .toString(36)
-    .slice(2, 8)}_${file.originalname.replace(/\s+/g, "_")}`;
+    .slice(2, 8)}_${(file.originalname || "image").replace(/\s+/g, "_")}`;
 
   const key = `${folder}/${fileName}`;
 
-  const { data, error } = await supabase.storage
+  const { error } = await supabase.storage
     .from("product")
     .upload(key, file.buffer, {
-      contentType: file.mimetype,
-      upsert: true
+      contentType: file.mimetype || "image/jpeg",
+      upsert: true,
     });
 
   if (error) {
@@ -38,6 +40,30 @@ async function uploadToSupabase(file, folder = "product/single") {
 
   return supabase.storage.from("product").getPublicUrl(key).data.publicUrl;
 }
+
+// async function uploadToSupabase(file, folder = "product/single") {
+//   if (!file) throw new Error("No file");
+
+//   const fileName = `${Date.now()}_${Math.random()
+//     .toString(36)
+//     .slice(2, 8)}_${file.originalname.replace(/\s+/g, "_")}`;
+
+//   const key = `${folder}/${fileName}`;
+
+//   const { data, error } = await supabase.storage
+//     .from("product")
+//     .upload(key, file.buffer, {
+//       contentType: file.mimetype,
+//       upsert: true
+//     });
+
+//   if (error) {
+//     console.error("Supabase upload failed:", error);
+//     throw new Error("Image upload failed");
+//   }
+
+//   return supabase.storage.from("product").getPublicUrl(key).data.publicUrl;
+// }
 
 // async function uploadToSupabase(file, folder = "product/single") {
 //   if (!file) throw new Error("No file");
@@ -470,14 +496,30 @@ console.log("BODY KEYS: ", Object.keys(req.body || {}));
 
     const parentProductId = parentRes.rows[0].product_id;
 
+ 
     /* Parent images */
-    for (const f of filesByField["parentImages"] || []) {
-      const url = await uploadToSupabase(f, "products/parent");
-      await client.query(
-        "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
-        [parentProductId, url]
-      );
-    }
+ /* Parent images */
+const parentImages = filesByField["parentImages"];
+
+if (Array.isArray(parentImages)) {
+  for (const f of parentImages) {
+    if (!f?.buffer) continue;
+
+    const url = await uploadToSupabase(f, "products/parent");
+    await client.query(
+      "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+      [parentProductId, url]
+    );
+  }
+}
+
+    // for (const f of filesByField["parentImages"] || []) {
+    //   const url = await uploadToSupabase(f, "products/parent");
+    //   await client.query(
+    //     "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+    //     [parentProductId, url]
+    //   );
+    // }
 
     /* Child variants */
     for (const combo of variantsPayload) {
@@ -549,13 +591,27 @@ console.log("BODY KEYS: ", Object.keys(req.body || {}));
       const sanitizedKey = sanitizeComboKey(combo.combinationKey || combo.label || "");
       const fieldName = `images_${sanitizedKey}`;
 
-      for (const f of filesByField[fieldName] || []) {
-        const url = await uploadToSupabase(f, "products/variants");
-        await client.query(
-          "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
-          [childProductId, url]
-        );
-      }
+      const variantImages = filesByField[fieldName];
+
+if (Array.isArray(variantImages)) {
+  for (const f of variantImages) {
+    if (!f?.buffer) continue;
+
+    const url = await uploadToSupabase(f, "products/variants");
+    await client.query(
+      "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+      [childProductId, url]
+    );
+  }
+}
+
+      // for (const f of filesByField[fieldName] || []) {
+      //   const url = await uploadToSupabase(f, "products/variants");
+      //   await client.query(
+      //     "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+      //     [childProductId, url]
+      //   );
+      // }
     }
 
     await client.query("COMMIT");

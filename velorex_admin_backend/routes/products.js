@@ -429,6 +429,11 @@ router.delete("/:id", async (req, res) => {
 
 
 router.post("/with-variants", upload.any(), async (req, res) => {
+  console.log("🔥🔥 /with-variants HIT 🔥🔥");
+  console.log("FILES:", req.files?.length || 0);
+  console.log("BODY:", Object.keys(req.body || {}));
+
+  
   const client = await pool.connect();
   console.log("FILES RECEIVED: ", req.files?.length || 0);
 console.log("BODY KEYS: ", Object.keys(req.body || {}));

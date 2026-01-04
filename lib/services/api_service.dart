@@ -308,10 +308,12 @@ static Future<void> _addFile({
     );
   }
 }
+
   // =====================================================
   // 📦 CREATE PRODUCT WITH VARIANTS (FIXED)
   // =====================================================
   static Future<Map<String, dynamic>> createProductWithVariants({
+    
     required Map<String, dynamic> parentJson,
     required List<Map<String, dynamic>> variantsPayload,
     List<File>? parentImageFiles,
@@ -357,6 +359,14 @@ static Future<void> _addFile({
           filename: "parent_${DateTime.now().millisecondsSinceEpoch}.jpg",
         );
       }
+debugPrint("🚀 Sending CREATE PRODUCT WITH VARIANTS");
+debugPrint("📦 Parent JSON: ${jsonEncode(parentJson)}");
+debugPrint("📦 VariantsPayload: ${jsonEncode(variantsPayload)}");
+
+for (final combo in childVariants ?? []) {
+  debugPrint("🧩 ComboKey: ${combo['comboKey']}");
+  debugPrint("🖼 Images count: ${(combo['images'] as List?)?.length ?? 0}");
+}
 
       // ---------- VARIANT IMAGES ----------
       childVariants ??= [];
@@ -379,8 +389,16 @@ static Future<void> _addFile({
         }
       }
 
-      final res = await req.send();
-      final body = await res.stream.bytesToString();
+     final res = await req.send();
+final body = await res.stream.bytesToString();
+
+debugPrint("📡 STATUS CODE: ${res.statusCode}");
+debugPrint("📡 RESPONSE BODY: $body");
+
+if (res.statusCode >= 400) {
+  debugPrint("❌ BACKEND ERROR");
+}
+
 
       print("🟢 createProductWithVariants ${res.statusCode}");
       print(body);

@@ -16,8 +16,15 @@ console.log("🔍 Has storage:", !!supabase?.storage);
    HELPERS
 =========================== */
 async function uploadToSupabase(file, folder = "product/single") {
+  console.log("🟡 uploadToSupabase() called");
+  console.log("📂 Folder:", folder);
+  console.log("📄 Field:", file?.fieldname);
+  console.log("📄 Original name:", file?.originalname);
+  console.log("📦 Buffer exists:", !!file?.buffer);
+  console.log("📦 Buffer size:", file?.buffer?.length);
+
   if (!file || !file.buffer) {
-    throw new Error("Invalid file or empty buffer");
+    throw new Error("❌ Invalid file or empty buffer");
   }
 
   const fileName = `${Date.now()}_${Math.random()
@@ -25,6 +32,7 @@ async function uploadToSupabase(file, folder = "product/single") {
     .slice(2, 8)}_${(file.originalname || "image").replace(/\s+/g, "_")}`;
 
   const key = `${folder}/${fileName}`;
+  console.log("🔑 Upload key:", key);
 
   const { error } = await supabase.storage
     .from("product")
@@ -34,11 +42,15 @@ async function uploadToSupabase(file, folder = "product/single") {
     });
 
   if (error) {
-    console.error("Supabase upload failed:", error);
-    throw new Error("Image upload failed");
+    console.error("❌ Supabase upload error:", error);
+    throw new Error(error.message);
   }
 
-  return supabase.storage.from("product").getPublicUrl(key).data.publicUrl;
+  const url =
+    supabase.storage.from("product").getPublicUrl(key).data.publicUrl;
+
+  console.log("✅ Uploaded URL:", url);
+  return url;
 }
 
 // async function uploadToSupabase(file, folder = "product/single") {
@@ -96,10 +108,20 @@ function generateVariantProductName(parent, selections = []) {
 }
 
 function generateSKU(parent, selections = []) {
-  const base = parent.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase();
-  const part = selections.map(v => v[0]).join("").toUpperCase();
+  const base = parent
+    .replace(/[^A-Za-z0-9]/g, "")
+    .slice(0, 6)
+    .toUpperCase();
+
+  const part = selections
+    .map(v => (typeof v === "string" ? v[0] : v?.value?.[0]))
+    .filter(Boolean)
+    .join("")
+    .toUpperCase();
+
   return `${base}-${part}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
+
 
 /* =======================================================
    BULK UPLOAD (XLSX)
@@ -425,53 +447,325 @@ router.delete("/:id", async (req, res) => {
 });
 
 
-
-
-
-router.post("/with-variants", upload.any(), async (req, res) => {
-  console.log("🔥🔥 /with-variants HIT 🔥🔥");
-  console.log("FILES:", req.files?.length || 0);
-  console.log("BODY:", Object.keys(req.body || {}));
+// router.post("/with-variants", upload.any(), async (req, res) => {
+//   console.log("🔥🔥 /with-variants HIT 🔥🔥");
+//   console.log("📦 Files count:", req.files?.length || 0);
+//   console.log("📦 File fields:",
+//     (req.files || []).map(f => f.fieldname)
+//   );
+//   console.log("🧾 Body keys:", Object.keys(req.body || {}));
 
   
+//   const client = await pool.connect();
+//   console.log("FILES RECEIVED: ", req.files?.length || 0);
+// console.log("BODY KEYS: ", Object.keys(req.body || {}));
+//   const files = req.files || [];
+
+//   const filesByField = {};
+//   for (const f of files) {
+//     if (!filesByField[f.fieldname]) filesByField[f.fieldname] = [];
+//     filesByField[f.fieldname].push(f);
+//   }
+
+// let parentJson = null;
+// let variantsPayload = [];
+
+// try {
+//   console.log("📥 RAW parent:", req.body.parent);
+//   console.log("📥 RAW variantsPayload:", req.body.variantsPayload);
+
+//   parentJson = req.body.parent ? JSON.parse(req.body.parent) : null;
+//   variantsPayload = req.body.variantsPayload
+//     ? JSON.parse(req.body.variantsPayload)
+//     : [];
+// } catch (err) {
+//   console.error("❌ JSON parse failed:", err.message);
+//   return res.status(400).json({ error: "Invalid JSON payload" });
+// }
+
+// if (!parentJson || !parentJson.name) {
+//   console.error("❌ parentJson missing or invalid:", parentJson);
+//   return res.status(400).json({
+//     error: "Parent JSON with name required",
+//   });
+// }
+
+//   const createdChildIds = [];
+//   const groupId = Date.now();
+
+//   try {
+//     await client.query("BEGIN");
+
+//     const parentPrice = parentJson.price ? Number(parentJson.price) : null;
+//     const parentOfferPrice = parentJson.offerPrice ? Number(parentJson.offerPrice) : null;
+//     const parentStock = parentJson.stock ? Number(parentJson.stock) : 0;
+//     const parentQuantity = parentJson.quantity ? Number(parentJson.quantity) : 0;
+
+//     const parentRes = await client.query(
+//       `
+//       INSERT INTO products
+//       (name, description, price, offer_price, quantity, stock,
+//        category_id, subcategory_id, brand_id, is_sponsored,
+//        sku, group_id, video_url, created_at, updated_at)
+//       VALUES
+//       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+//       RETURNING product_id
+//       `,
+//       [
+//         parentJson.name,
+//         parentJson.description || null,
+//         parentPrice,
+//         parentOfferPrice,
+//         parentQuantity,
+//         parentStock,
+//         parentJson.categoryId || null,
+//         parentJson.subcategoryId || null,
+//         parentJson.brandId || null,
+//         parentJson.isSponsored || false,
+//         parentJson.sku || null,
+//         groupId,
+//         parentJson.videoUrl || null,
+//       ]
+//     );
+
+//     const parentProductId = parentRes.rows[0].product_id;
+
+ 
+//     /* Parent images */
+//  /* Parent images */
+// const parentImages = filesByField["parentImages"];
+// console.log("🖼 Parent images count:", parentImages?.length || 0);
+
+// if (!Array.isArray(parentImages)) {
+//   console.warn("⚠️ No parentImages field received");
+// }
+
+// if (Array.isArray(parentImages)) {
+//   for (const f of parentImages) {
+//     if (!f?.buffer) continue;
+
+//     const url = await uploadToSupabase(f, "products/parent");
+//     await client.query(
+//       "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+//       [parentProductId, url]
+//     );
+//   }
+// }
+
+// console.log("✅ Parent inserted");
+// console.log("🆔 Parent ID:", parentProductId);
+// console.log("🧩 Group ID:", groupId);
+
+//     // for (const f of filesByField["parentImages"] || []) {
+//     //   const url = await uploadToSupabase(f, "products/parent");
+//     //   await client.query(
+//     //     "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+//     //     [parentProductId, url]
+//     //   );
+//     // }
+
+//     /* Child variants */
+//     for (const combo of variantsPayload) {
+//       const selections = Array.isArray(combo.selections) ? combo.selections : [];
+
+//       const childPrice = combo.price ? Number(combo.price) : parentPrice;
+//       const childOfferPrice = combo.offerPrice ? Number(combo.offerPrice) : parentOfferPrice;
+//       const childStock = combo.stock ? Number(combo.stock) : 0;
+//       const childQuantity = combo.quantity ? Number(combo.quantity) : 0;
+
+//       const childName = generateVariantProductName(
+//         parentJson.name,
+//         selections.map(s => s?.value || s?.Variant || s?.VariantName || "")
+//       );
+
+//       const skuToUse =
+//         combo.sku ||
+//         generateSKU(parentJson.name, selections.map(s => s?.value));
+
+//       const childRes = await client.query(
+//         `
+//         INSERT INTO products
+//         (name, description, price, offer_price, quantity, stock,
+//          category_id, subcategory_id, brand_id, is_sponsored,
+//          sku, parent_product_id, group_id, video_url,
+//          created_at, updated_at)
+//         VALUES
+//         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
+//         RETURNING product_id
+//         `,
+//         [
+//           childName,
+//           combo.description || null,
+//           childPrice,
+//           childOfferPrice,
+//           childQuantity,
+//           childStock,
+//           parentJson.categoryId || null,
+//           parentJson.subcategoryId || null,
+//           parentJson.brandId || null,
+//           parentJson.isSponsored || false,
+//           skuToUse,
+//           parentProductId,
+//           groupId,
+//           combo.videoUrl || null,
+//         ]
+//       );
+
+//       const childProductId = childRes.rows[0].product_id;
+//       createdChildIds.push(childProductId);
+
+//       /* Variant selections */
+//       for (const sel of selections) {
+//         const vt = sel?.VariantTypeID ?? sel?.variantTypeId ?? sel?.typeId;
+//         const vv = sel?.VariantID ?? sel?.variantValueId ?? sel?.variantId;
+//         if (!vt || !vv) continue;
+
+//         await client.query(
+//           `
+//           INSERT INTO product_variant_selections
+//           (product_id, variant_type_id, variant_id, added_date)
+//           VALUES ($1,$2,$3,NOW())
+//           `,
+//           [childProductId, vt, vv]
+//         );
+//       }
+
+// console.log("✅ Child product inserted");
+// console.log("🆔 Child ID:", childProductId);
+
+// console.log("\n➡️ Processing variant");
+// console.log("🧩 Combo object:", combo);
+// console.log("🧩 Selections:", combo.selections);
+//       /* Child images */
+// /* Child images */
+// const rawKey =
+//   combo.comboKey ||
+//   combo.combinationKey ||
+//   combo.label ||
+//   "";
+
+// console.log("🔑 Raw combo key:", rawKey);
+
+// if (!rawKey) {
+//   console.warn("⚠️ Variant has NO comboKey → skipping images");
+// }
+
+// const sanitizedKey = sanitizeComboKey(rawKey);
+// const fieldName = `images_${sanitizedKey}`;
+
+// console.log("🧼 Sanitized key:", sanitizedKey);
+// console.log("📂 Image field expected:", fieldName);
+
+// const variantImages = filesByField[fieldName];
+
+// console.log(
+//   "🖼 Variant images found:",
+//   variantImages?.length || 0
+// );
+
+// if (Array.isArray(variantImages)) {
+//   for (const f of variantImages) {
+//     console.log("⬆️ Uploading variant image:", f.originalname);
+
+//     if (!f?.buffer) {
+//       console.warn("⚠️ Variant image missing buffer, skipping");
+//       continue;
+//     }
+
+//     const url = await uploadToSupabase(f, "products/variants");
+
+//     await client.query(
+//       "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+//       [childProductId, url]
+//     );
+
+//     console.log("✅ Variant image saved:", url);
+//   }
+// }
+
+
+//       // for (const f of filesByField[fieldName] || []) {
+//       //   const url = await uploadToSupabase(f, "products/variants");
+//       //   await client.query(
+//       //     "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+//       //     [childProductId, url]
+//       //   );
+//       // }
+//     }
+
+//     await client.query("COMMIT");
+
+//     res.json({
+//       success: true,
+//       parentProductId,
+//       groupId,
+//       childProductIds: createdChildIds,
+//     });
+// } catch (err) {
+//   console.error("❌ TRANSACTION FAILED ❌");
+//   console.error("❌ Error message:", err.message);
+//   console.error("❌ Stack:", err.stack);
+
+//   await client.query("ROLLBACK");
+//   res.status(500).json({
+//     error: err.message,
+//     stack: err.stack,
+//   });
+// }
+
+// });
+  router.post("/with-variants", upload.any(), async (req, res) => {
+  console.log("🔥🔥 /with-variants HIT 🔥🔥");
+
   const client = await pool.connect();
-  console.log("FILES RECEIVED: ", req.files?.length || 0);
-console.log("BODY KEYS: ", Object.keys(req.body || {}));
-  const files = req.files || [];
-
-  const filesByField = {};
-  for (const f of files) {
-    if (!filesByField[f.fieldname]) filesByField[f.fieldname] = [];
-    filesByField[f.fieldname].push(f);
-  }
-
-  let parentJson = null;
-  let variantsPayload = [];
 
   try {
-    parentJson = req.body.parent ? JSON.parse(req.body.parent) : null;
-    variantsPayload = req.body.variantsPayload
-      ? JSON.parse(req.body.variantsPayload)
-      : [];
-  } catch (err) {
-    return res.status(400).json({ error: "Invalid JSON in parent or variantsPayload" });
-  }
+    console.log("📦 Files count:", req.files?.length || 0);
+    console.log(
+      "📦 File fields:",
+      (req.files || []).map(f => f.fieldname)
+    );
+    console.log("🧾 Body keys:", Object.keys(req.body || {}));
 
-  if (!parentJson || !parentJson.name) {
-    return res.status(400).json({ error: "Parent JSON with name required" });
-  }
+    /* ---------------- FILE MAP ---------------- */
+    const files = req.files || [];
+    const filesByField = {};
+    for (const f of files) {
+      if (!filesByField[f.fieldname]) filesByField[f.fieldname] = [];
+      filesByField[f.fieldname].push(f);
+    }
 
-  const createdChildIds = [];
-  const groupId = Date.now();
+    /* ---------------- JSON PARSE ---------------- */
+    let parentJson = null;
+    let variantsPayload = [];
 
-  try {
+    try {
+      console.log("📥 RAW parent:", req.body.parent);
+      console.log("📥 RAW variantsPayload:", req.body.variantsPayload);
+
+      parentJson = req.body.parent ? JSON.parse(req.body.parent) : null;
+      variantsPayload = req.body.variantsPayload
+        ? JSON.parse(req.body.variantsPayload)
+        : [];
+    } catch (err) {
+      console.error("❌ JSON parse failed:", err.message);
+      return res.status(400).json({ error: "Invalid JSON payload" });
+    }
+
+    if (!parentJson || !parentJson.name) {
+      console.error("❌ parentJson missing or invalid:", parentJson);
+      return res.status(400).json({
+        error: "Parent JSON with name required",
+      });
+    }
+
+    const groupId = Date.now();
+    const createdChildIds = [];
+
+    /* ================= TRANSACTION ================= */
     await client.query("BEGIN");
 
-    const parentPrice = parentJson.price ? Number(parentJson.price) : null;
-    const parentOfferPrice = parentJson.offerPrice ? Number(parentJson.offerPrice) : null;
-    const parentStock = parentJson.stock ? Number(parentJson.stock) : 0;
-    const parentQuantity = parentJson.quantity ? Number(parentJson.quantity) : 0;
-
+    /* ---------------- PARENT INSERT ---------------- */
     const parentRes = await client.query(
       `
       INSERT INTO products
@@ -485,10 +779,10 @@ console.log("BODY KEYS: ", Object.keys(req.body || {}));
       [
         parentJson.name,
         parentJson.description || null,
-        parentPrice,
-        parentOfferPrice,
-        parentQuantity,
-        parentStock,
+        parentJson.price ? Number(parentJson.price) : null,
+        parentJson.offerPrice ? Number(parentJson.offerPrice) : null,
+        parentJson.quantity ? Number(parentJson.quantity) : 0,
+        parentJson.stock ? Number(parentJson.stock) : 0,
         parentJson.categoryId || null,
         parentJson.subcategoryId || null,
         parentJson.brandId || null,
@@ -500,49 +794,32 @@ console.log("BODY KEYS: ", Object.keys(req.body || {}));
     );
 
     const parentProductId = parentRes.rows[0].product_id;
+    console.log("✅ Parent inserted:", parentProductId);
 
- 
-    /* Parent images */
- /* Parent images */
-const parentImages = filesByField["parentImages"];
+    /* ---------------- PARENT IMAGES ---------------- */
+    const parentImages = filesByField["parentImages"];
+    console.log("🖼 Parent images:", parentImages?.length || 0);
 
-if (Array.isArray(parentImages)) {
-  for (const f of parentImages) {
-    if (!f?.buffer) continue;
+    if (Array.isArray(parentImages)) {
+      for (const f of parentImages) {
+        if (!f?.buffer) continue;
 
-    const url = await uploadToSupabase(f, "products/parent");
-    await client.query(
-      "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
-      [parentProductId, url]
-    );
-  }
-}
+        const url = await uploadToSupabase(f, "products/parent");
+        await client.query(
+          "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+          [parentProductId, url]
+        );
+        console.log("✅ Parent image saved:", url);
+      }
+    }
 
-    // for (const f of filesByField["parentImages"] || []) {
-    //   const url = await uploadToSupabase(f, "products/parent");
-    //   await client.query(
-    //     "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
-    //     [parentProductId, url]
-    //   );
-    // }
-
-    /* Child variants */
+    /* ---------------- CHILD VARIANTS ---------------- */
     for (const combo of variantsPayload) {
-      const selections = Array.isArray(combo.selections) ? combo.selections : [];
+      console.log("\n➡️ Processing variant:", combo);
 
-      const childPrice = combo.price ? Number(combo.price) : parentPrice;
-      const childOfferPrice = combo.offerPrice ? Number(combo.offerPrice) : parentOfferPrice;
-      const childStock = combo.stock ? Number(combo.stock) : 0;
-      const childQuantity = combo.quantity ? Number(combo.quantity) : 0;
-
-      const childName = generateVariantProductName(
-        parentJson.name,
-        selections.map(s => s?.value || s?.Variant || s?.VariantName || "")
-      );
-
-      const skuToUse =
-        combo.sku ||
-        generateSKU(parentJson.name, selections.map(s => s?.value));
+      const selections = Array.isArray(combo.selections)
+        ? combo.selections
+        : [];
 
       const childRes = await client.query(
         `
@@ -556,17 +833,21 @@ if (Array.isArray(parentImages)) {
         RETURNING product_id
         `,
         [
-          childName,
+          generateVariantProductName(
+            parentJson.name,
+            selections.map(s => s?.value || s)
+          ),
           combo.description || null,
-          childPrice,
-          childOfferPrice,
-          childQuantity,
-          childStock,
+          combo.price ? Number(combo.price) : parentJson.price,
+          combo.offerPrice ? Number(combo.offerPrice) : parentJson.offerPrice,
+          combo.quantity ? Number(combo.quantity) : 0,
+          combo.stock ? Number(combo.stock) : 0,
           parentJson.categoryId || null,
           parentJson.subcategoryId || null,
           parentJson.brandId || null,
           parentJson.isSponsored || false,
-          skuToUse,
+          combo.sku ||
+            generateSKU(parentJson.name, selections.map(s => s?.value)),
           parentProductId,
           groupId,
           combo.videoUrl || null,
@@ -575,11 +856,12 @@ if (Array.isArray(parentImages)) {
 
       const childProductId = childRes.rows[0].product_id;
       createdChildIds.push(childProductId);
+      console.log("✅ Child inserted:", childProductId);
 
-      /* Variant selections */
+      /* -------- Variant selections -------- */
       for (const sel of selections) {
-        const vt = sel?.VariantTypeID ?? sel?.variantTypeId ?? sel?.typeId;
-        const vv = sel?.VariantID ?? sel?.variantValueId ?? sel?.variantId;
+        const vt = sel?.VariantTypeID ?? sel?.variantTypeId;
+        const vv = sel?.VariantID ?? sel?.variantId;
         if (!vt || !vv) continue;
 
         await client.query(
@@ -592,31 +874,43 @@ if (Array.isArray(parentImages)) {
         );
       }
 
-      /* Child images */
-      const sanitizedKey = sanitizeComboKey(combo.combinationKey || combo.label || "");
-      const fieldName = `images_${sanitizedKey}`;
+      /* -------- Variant images (FIXED) -------- */
+      const rawKey =
+        combo.comboKey ||
+        combo.combinationKey ||
+        combo.label ||
+        "";
 
-      const variantImages = filesByField[fieldName];
+      console.log("🔑 Combo key:", rawKey);
 
-if (Array.isArray(variantImages)) {
-  for (const f of variantImages) {
-    if (!f?.buffer) continue;
+      if (rawKey) {
+        const sanitizedKey = sanitizeComboKey(rawKey);
+        const fieldName = `images_${sanitizedKey}`;
+        const variantImages = filesByField[fieldName];
 
-    const url = await uploadToSupabase(f, "products/variants");
-    await client.query(
-      "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
-      [childProductId, url]
-    );
-  }
-}
+        console.log(
+          "🖼 Variant images:",
+          variantImages?.length || 0
+        );
 
-      // for (const f of filesByField[fieldName] || []) {
-      //   const url = await uploadToSupabase(f, "products/variants");
-      //   await client.query(
-      //     "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
-      //     [childProductId, url]
-      //   );
-      // }
+        if (Array.isArray(variantImages)) {
+          for (const f of variantImages) {
+            if (!f?.buffer) continue;
+
+            const url = await uploadToSupabase(
+              f,
+              "products/variants"
+            );
+
+            await client.query(
+              "INSERT INTO product_images (product_id, image_url) VALUES ($1,$2)",
+              [childProductId, url]
+            );
+
+            console.log("✅ Variant image saved:", url);
+          }
+        }
+      }
     }
 
     await client.query("COMMIT");
@@ -628,13 +922,19 @@ if (Array.isArray(variantImages)) {
       childProductIds: createdChildIds,
     });
   } catch (err) {
+    console.error("❌ TRANSACTION FAILED ❌");
+    console.error(err);
+
     await client.query("ROLLBACK");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message,
+      stack: err.stack,
+    });
   } finally {
-    client.release();
+    client.release(); // ✅ CRITICAL
   }
 });
-  
+
 router.get("/:id/with-variants", async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ error: "Invalid id" });

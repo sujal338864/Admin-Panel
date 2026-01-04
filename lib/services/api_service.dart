@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart';
 
 class ApiService {
  static const String baseUrl =
@@ -165,9 +166,21 @@ static Future<Map<String, dynamic>> updateChildProduct({
     // images
     if (images != null) {
       for (final f in images) {
-        req.files.add(
-          await http.MultipartFile.fromPath("images", f.path),
-        );
+if (kIsWeb) {
+  final bytes = await f.readAsBytes();
+  req.files.add(
+    http.MultipartFile.fromBytes(
+      "images",
+      bytes,
+      filename: "child.jpg",
+    ),
+  );
+} else {
+  req.files.add(
+    await http.MultipartFile.fromPath("images", f.path),
+  );
+}
+
       }
     }
 
@@ -182,6 +195,7 @@ static Future<Map<String, dynamic>> updateChildProduct({
     return {"success": false, "error": e.toString()};
   }
 }
+
 static Future<bool> updateParentProduct({
   required int productId,
   required Map<String, dynamic> data,
@@ -195,7 +209,21 @@ static Future<bool> updateParentProduct({
   });
 
   for (final f in images ?? []) {
-    req.files.add(await http.MultipartFile.fromPath("images", f.path));
+  if (kIsWeb) {
+  final bytes = await f.readAsBytes();
+  req.files.add(
+    http.MultipartFile.fromBytes(
+      "images",
+      bytes,
+      filename: "parent.jpg",
+    ),
+  );
+} else {
+  req.files.add(
+    await http.MultipartFile.fromPath("images", f.path),
+  );
+}
+
   }
 
   final res = await req.send();
@@ -240,9 +268,21 @@ static Future<bool> updateParentProduct({
 
     // images
     for (final img in images) {
-      req.files.add(
-        await http.MultipartFile.fromPath("images", img.path),
-      );
+if (kIsWeb) {
+  final bytes = await img.readAsBytes();
+  req.files.add(
+    http.MultipartFile.fromBytes(
+      "images",
+      bytes,
+      filename: "product.jpg",
+    ),
+  );
+} else {
+  req.files.add(
+    await http.MultipartFile.fromPath("images", img.path),
+  );
+}
+
     }
 
     final streamed = await req.send();
@@ -251,11 +291,26 @@ static Future<bool> updateParentProduct({
     print("BODY: ${res.body}");
     return res.statusCode == 201 || res.statusCode == 200;
   }
-
-  /// ---------------------------------------------------
-  /// CREATE / UPLOAD PRODUCT WITH VARIANTS (PARENT + CHILDREN)
-  /// /products/with-variants
-  /// ---------------------------------------------------
+  
+static Future<void> _addFile({
+  required http.MultipartRequest req,
+  required String field,
+  required dynamic file,
+  required String filename,
+}) async {
+  if (file is Uint8List) {
+    req.files.add(
+      http.MultipartFile.fromBytes(field, file, filename: filename),
+    );
+  } else if (file is File && !kIsWeb) {
+    req.files.add(
+      await http.MultipartFile.fromPath(field, file.path),
+    );
+  }
+}
+  // =====================================================
+  // 📦 CREATE PRODUCT WITH VARIANTS (FIXED)
+  // =====================================================
   static Future<Map<String, dynamic>> createProductWithVariants({
     required Map<String, dynamic> parentJson,
     required List<Map<String, dynamic>> variantsPayload,
@@ -264,99 +319,79 @@ static Future<bool> updateParentProduct({
     List<Map<String, dynamic>>? childVariants,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/products/with-variants');
-      final req = http.MultipartRequest('POST', uri);
+      final req = http.MultipartRequest(
+        "POST",
+        Uri.parse("$baseUrl/products/with-variants"),
+      );
 
-      // ------------------ PARENT JSON ------------------
-      req.fields['parent'] = jsonEncode(parentJson);
-      req.fields['variantsPayload'] = jsonEncode(variantsPayload);
+      // ---------- JSON ----------
+      req.fields["parent"] = jsonEncode(parentJson);
+      req.fields["variantsPayload"] = jsonEncode(variantsPayload);
 
-      // ------------------ PARENT IMAGES ------------------
+      // ---------- PARENT IMAGES ----------
       parentImageFiles ??= [];
       for (final f in parentImageFiles) {
-        req.files.add(
-          await http.MultipartFile.fromPath(
-            'parentImages', // Backend accepts parentImages*
-            f.path,
-            filename: f.path.split('/').last,
-          ),
-        );
-      }
-
-      parentImageBytes ??= [];
-      for (int i = 0; i < parentImageBytes.length; i++) {
-        req.files.add(
-          http.MultipartFile.fromBytes(
-            'parentImages', // Can appear as parentImages, parentImages[0], etc.
-            parentImageBytes[i],
-            filename: 'parent_$i.jpg',
-          ),
-        );
-      }
-
-      // ------------------ CHILD VARIANT IMAGES ------------------
-      //
-      // childVariants item example:
-      // {
-      //   "comboKey": "Red-M",      // MUST match what you use in variantsPayload.combinationKey / comboKey
-      //   "useParentImages": false,
-      //   "images": [ File or Uint8List, ... ]
-      // }
-      //
-      childVariants ??= [];
-
-      for (final combo in childVariants) {
-        String comboKeyRaw =
-            combo['comboKey'] ??
-            combo['combinationKey'] ??
-            combo['key'] ??
-            combo['label'] ??
-            "";
-
-        if (comboKeyRaw.isEmpty) continue;
-        if (combo['useParentImages'] == true) continue;
-
-        final sanitized = sanitizeComboKey(comboKeyRaw);
-        final fieldName = "images_$sanitized";
-
-        final imgs = combo['images'] ?? [];
-
-        for (int i = 0; i < imgs.length; i++) {
-          final img = imgs[i];
-
-          if (img is File) {
-            req.files.add(
-              await http.MultipartFile.fromPath(
-                fieldName,
-                img.path,
-                filename: '${fieldName}_$i.jpg',
-              ),
-            );
-          } else if (img is Uint8List) {
-            req.files.add(
-              http.MultipartFile.fromBytes(
-                fieldName,
-                img,
-                filename: '${fieldName}_$i.jpg',
-              ),
-            );
-          }
+        if (kIsWeb) {
+          await _addFile(
+            req: req,
+            field: "parentImages",
+            file: await f.readAsBytes(),
+            filename: "parent.jpg",
+          );
+        } else {
+          await _addFile(
+            req: req,
+            field: "parentImages",
+            file: f,
+            filename: "parent.jpg",
+          );
         }
       }
 
-      final streamed = await req.send();
-      final resp = await http.Response.fromStream(streamed);
+      parentImageBytes ??= [];
+      for (final bytes in parentImageBytes) {
+        await _addFile(
+          req: req,
+          field: "parentImages",
+          file: bytes,
+          filename: "parent_${DateTime.now().millisecondsSinceEpoch}.jpg",
+        );
+      }
 
-      print("🔵 createProductWithVariants STATUS: ${resp.statusCode}");
-      print("BODY: ${resp.body}");
+      // ---------- VARIANT IMAGES ----------
+      childVariants ??= [];
+      for (final combo in childVariants) {
+        final rawKey =
+            combo["comboKey"] ?? combo["label"] ?? combo["key"] ?? "";
+        if (rawKey.isEmpty) continue;
 
-      return jsonDecode(resp.body);
-    } catch (e, st) {
-      print("❌ ERROR in createProductWithVariants: $e");
-      print(st);
+        final field = "images_${sanitizeComboKey(rawKey)}";
+        final images = combo["images"] as List? ?? [];
+
+        for (final img in images) {
+          await _addFile(
+            req: req,
+            field: field,
+            file: img,
+            filename:
+                "variant_${DateTime.now().microsecondsSinceEpoch}.png",
+          );
+        }
+      }
+
+      final res = await req.send();
+      final body = await res.stream.bytesToString();
+
+      print("🟢 createProductWithVariants ${res.statusCode}");
+      print(body);
+
+      return jsonDecode(body);
+    } catch (e) {
+      print("❌ createProductWithVariants ERROR: $e");
       return {"success": false, "error": e.toString()};
     }
   }
+
 
   /// Legacy alias, if you call this name anywhere else
   static Future<Map<String, dynamic>> uploadProductWithVariants({
@@ -375,75 +410,78 @@ static Future<bool> updateParentProduct({
     );
   }
 
-static Future<Map<String, dynamic>> updateProductWithVariants({
-  required int productId,
-  required Map<String, dynamic> parentJson,
-  required List<Map<String, dynamic>> variantsPayload,
-  List<File>? parentImageFiles,
-  List<Uint8List>? parentImageBytes,
-  required List<Map<String, dynamic>> childVariants, // comboKey + images
-}) async {
-  try {
-    final uri = Uri.parse("$baseUrl/products/with-variants/$productId");
-    final req = http.MultipartRequest("PUT", uri);
+  // =====================================================
+  // ✏️ UPDATE PRODUCT WITH VARIANTS (FIXED)
+  // =====================================================
+  static Future<Map<String, dynamic>> updateProductWithVariants({
+    required int productId,
+    required Map<String, dynamic> parentJson,
+    required List<Map<String, dynamic>> variantsPayload,
+    List<File>? parentImageFiles,
+    List<Uint8List>? parentImageBytes,
+    required List<Map<String, dynamic>> childVariants,
+  }) async {
+    try {
+      final req = http.MultipartRequest(
+        "PUT",
+        Uri.parse("$baseUrl/products/with-variants/$productId"),
+      );
 
-    req.fields["parent"] = jsonEncode(parentJson);
-    req.fields["variantsPayload"] = jsonEncode(variantsPayload);
+      req.fields["parent"] = jsonEncode(parentJson);
+      req.fields["variantsPayload"] = jsonEncode(variantsPayload);
 
-    // Parent images
-    if (parentImageFiles != null) {
+      parentImageFiles ??= [];
       for (final f in parentImageFiles) {
-        req.files.add(await http.MultipartFile.fromPath(
-          "parentImages",
-          f.path,
-        ));
-      }
-    }
-
-    if (parentImageBytes != null) {
-      for (final bytes in parentImageBytes) {
-        req.files.add(
-          http.MultipartFile.fromBytes(
-            "parentImages",
-            bytes,
-            filename: "parent_${DateTime.now().millisecondsSinceEpoch}.png",
-          ),
-        );
-      }
-    }
-
-    // Child images (variants)
-    for (final combo in childVariants) {
-      final comboKey = combo["comboKey"];
-      final images = combo["images"] as List;
-
-      for (final img in images) {
-        if (img is File) {
-          req.files.add(await http.MultipartFile.fromPath(
-            "images_$comboKey",
-            img.path,
-          ));
-        } else if (img is Uint8List) {
-          req.files.add(
-            http.MultipartFile.fromBytes(
-              "images_$comboKey",
-              img,
-              filename: "variant_${comboKey}_${DateTime.now().microsecondsSinceEpoch}.png",
-            ),
+        if (kIsWeb) {
+          await _addFile(
+            req: req,
+            field: "parentImages",
+            file: await f.readAsBytes(),
+            filename: "parent.jpg",
+          );
+        } else {
+          await _addFile(
+            req: req,
+            field: "parentImages",
+            file: f,
+            filename: "parent.jpg",
           );
         }
       }
+
+      parentImageBytes ??= [];
+      for (final bytes in parentImageBytes) {
+        await _addFile(
+          req: req,
+          field: "parentImages",
+          file: bytes,
+          filename: "parent.jpg",
+        );
+      }
+
+      for (final combo in childVariants) {
+        final key = sanitizeComboKey(combo["comboKey"] ?? "");
+        final images = combo["images"] as List? ?? [];
+
+        for (final img in images) {
+          await _addFile(
+            req: req,
+            field: "images_$key",
+            file: img,
+            filename: "variant.png",
+          );
+        }
+      }
+
+      final res = await req.send();
+      final body = await res.stream.bytesToString();
+
+      return jsonDecode(body);
+    } catch (e) {
+      return {"success": false, "error": e.toString()};
     }
-
-    final response = await req.send();
-    final responseBytes = await response.stream.bytesToString();
-
-    return jsonDecode(responseBytes);
-  } catch (e) {
-    debugPrint("updateProductWithVariants error: $e");
-    return {"success": false, "error": e.toString()};
   }
-}
+  
 
   /// ---------------------------------------------------
   /// GET PRODUCT + VARIANTS (PARENT + CHILDREN)
@@ -717,19 +755,27 @@ static Future<bool> deleteSpecField(int fieldId) async {
    /// 
    /// caegor
    /// ✅ Upload image to Supabase and return public URL
-  static Future<String?> uploadCategoryImage(File imageFile) async {
-    try {
-      final fileName = 'category_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final supabase = Supabase.instance.client;
+static Future<String?> uploadCategoryImage({
+  File? file,
+  Uint8List? bytes,
+}) async {
+  try {
+    final supabase = Supabase.instance.client;
+    final fileName = 'category_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
-      await supabase.storage.from('categories').upload(fileName, imageFile);
-      final publicUrl = supabase.storage.from('categories').getPublicUrl(fileName);
-      return publicUrl;
-    } catch (e) {
-      print('❌ Image upload failed: $e');
-      return null;
+    if (kIsWeb && bytes != null) {
+      await supabase.storage.from('categories').uploadBinary(fileName, bytes);
+    } else if (file != null) {
+      await supabase.storage.from('categories').upload(fileName, file);
     }
+
+    return supabase.storage.from('categories').getPublicUrl(fileName);
+  } catch (e) {
+    print("❌ Category image upload failed: $e");
+    return null;
   }
+}
+
 
   /// ✅ Get categories
   static Future<List<Map<String, dynamic>>> getCategories() async {
@@ -1226,6 +1272,7 @@ static Future<bool> addCoupon({
     final res = await http.delete(Uri.parse('$baseUrl/coupons/$couponId'));
     return res.statusCode == 200;
   }  
+
 // ------------------- 🖼️ POSTERS -------------------
 /// ------------------- 🖼️ POSTERS -------------------
 /// ------------------- 🖼️ POSTERS -------------------
@@ -1242,15 +1289,29 @@ static Future<List<Map<String, dynamic>>> getPosters() async {
 }
 
 /// ✅ Upload poster image to Supabase and return public URL
-static Future<String> uploadPosterImage(File imageFile) async {
-  final supabase = Supabase.instance.client;
-  final fileName = 'poster_${DateTime.now().millisecondsSinceEpoch}.png';
-  final filePath = 'posters/$fileName';
+static Future<String?> uploadPosterImage({
+  File? file,
+  Uint8List? bytes,
+}) async {
+  try {
+    final supabase = Supabase.instance.client;
+    final fileName = 'poster_${DateTime.now().millisecondsSinceEpoch}.png';
 
-  await supabase.storage.from('posters').upload(filePath, imageFile);
-  final imageUrl = supabase.storage.from('posters').getPublicUrl(filePath);
-  return imageUrl;
+    if (kIsWeb && bytes != null) {
+      // ✅ Flutter Web
+      await supabase.storage.from('posters').uploadBinary(fileName, bytes);
+    } else if (file != null) {
+      // ✅ Mobile / Desktop
+      await supabase.storage.from('posters').upload(fileName, file);
+    }
+
+    return supabase.storage.from('posters').getPublicUrl(fileName);
+  } catch (e) {
+    debugPrint("❌ Poster image upload failed: $e");
+    return null;
+  }
 }
+
 
 /// ✅ Add new poster
 static Future<bool> addPoster({
@@ -1285,7 +1346,10 @@ static Future<bool> updatePoster({
 
   // If a new image file is provided, upload it first
   if (imageFile != null) {
-    uploadedImageUrl = await uploadPosterImage(imageFile);
+  uploadedImageUrl = await uploadPosterImage(
+  file: imageFile,
+);
+
   }
 
   // Build JSON payload
